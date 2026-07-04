@@ -123,9 +123,9 @@ class Family < ApplicationRecord
   scope :with_preview_features, -> { where(id: User.with_preview_features.select(:family_id)) }
 
   # Family-level rollup of the per-user preview flag, for callers that run
-  # without a Current.user (the nightly insights job). Preview access is a
-  # personal preference but the data it produces is family-scoped, so one
-  # opted-in member is enough to generate for the family.
+  # without a Current.user (the nightly insights job, contract detection).
+  # Preview access is a personal preference but the data it produces is
+  # family-scoped, so one opted-in member is enough to generate for the family.
   #
   # EXISTS rather than `users.any?(&:preview_features_enabled?)`: the job asks
   # this once per family, and the block form would load and instantiate every

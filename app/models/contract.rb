@@ -41,6 +41,12 @@ class Contract < ApplicationRecord
 
   scope :alphabetically, -> { order(Arel.sql("LOWER(name) ASC")) }
 
+  # Seed detected contract candidates for the family (idempotent). Returns the
+  # number of contracts created.
+  def self.identify_for!(family)
+    Identifier.new(family).identify
+  end
+
   # Average number of calendar months between two occurrences of the contract.
   # Weekly is expressed as a fraction of a month (52 weeks / 12 months) so the
   # normalized rollup treats a weekly charge as ~4.33 hits per month.
