@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
+ActiveRecord::Schema[7.2].define(version: 2026_07_04_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -18,6 +18,9 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
   # Custom types defined in this database.
   # Note that some types may not work with other database engines. Be careful if changing database.
   create_enum "account_status", ["ok", "syncing", "error"]
+  create_enum "contract_frequency", ["weekly", "monthly", "quarterly", "semiannual", "annual", "custom"]
+  create_enum "contract_source", ["manual", "detected"]
+  create_enum "contract_status", ["active", "paused", "cancelled"]
   create_enum "goal_pledge_kind", ["transfer", "manual_save"]
   create_enum "goal_pledge_status", ["open", "matched", "cancelled", "expired"]
 
@@ -490,6 +493,41 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
     t.index ["family_id", "exchange_portfolio_id"], name: "index_coinstats_items_on_family_id_and_exchange_portfolio_id", unique: true, where: "(exchange_portfolio_id IS NOT NULL)"
     t.index ["family_id"], name: "index_coinstats_items_on_family_id"
     t.index ["status"], name: "index_coinstats_items_on_status"
+  end
+
+  create_table "contracts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.uuid "family_id", null: false
+    t.uuid "merchant_id"
+    t.uuid "category_id"
+    t.uuid "account_id"
+    t.string "name", null: false
+    t.enum "frequency", default: "monthly", null: false, enum_type: "contract_frequency"
+    t.integer "custom_interval_months"
+    t.decimal "expected_amount", precision: 19, scale: 4, null: false
+    t.string "currency", null: false
+    t.integer "expected_day"
+    t.date "next_due_date"
+    t.enum "status", default: "active", null: false, enum_type: "contract_status"
+    t.enum "source", default: "manual", null: false, enum_type: "contract_source"
+    t.string "provider"
+    t.integer "cancellation_notice_days"
+    t.text "notes"
+    t.datetime "created_at", null: false
+    t.datetime "updated_at", null: false
+    t.decimal "previous_amount", precision: 19, scale: 4
+    t.text "description"
+    t.uuid "linked_account_id"
+    t.index ["account_id"], name: "index_contracts_on_account_id"
+    t.index ["category_id"], name: "index_contracts_on_category_id"
+    t.index ["family_id", "frequency"], name: "index_contracts_on_family_id_and_frequency"
+    t.index ["family_id", "status"], name: "index_contracts_on_family_id_and_status"
+    t.index ["family_id"], name: "index_contracts_on_family_id"
+    t.index ["linked_account_id"], name: "index_contracts_on_linked_account_id"
+    t.index ["merchant_id"], name: "index_contracts_on_merchant_id"
+    t.check_constraint "char_length(name::text) <= 255", name: "chk_contracts_name_length"
+    t.check_constraint "expected_amount > 0::numeric", name: "chk_contracts_expected_amount_positive"
+    t.check_constraint "expected_day IS NULL OR expected_day >= 1 AND expected_day <= 31", name: "chk_contracts_expected_day_range"
+    t.check_constraint "frequency <> 'custom'::contract_frequency OR custom_interval_months IS NOT NULL AND custom_interval_months > 0", name: "chk_contracts_custom_interval_present"
   end
 
   create_table "credit_cards", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
@@ -1946,6 +1984,43 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
     t.index ["security_id"], name: "index_trades_on_security_id"
   end
 
+  create_table "trading212_accounts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "account_type"
+    t.decimal "cash_balance", precision: 19, scale: 4
+    t.datetime "created_at", null: false
+    t.string "currency"
+    t.decimal "current_balance", precision: 19, scale: 4
+    t.datetime "last_orders_sync"
+    t.datetime "last_positions_sync"
+    t.string "name"
+    t.jsonb "raw_dividends_payload", default: [], null: false
+    t.jsonb "raw_orders_payload", default: [], null: false
+    t.jsonb "raw_positions_payload", default: [], null: false
+    t.jsonb "raw_transactions_payload", default: [], null: false
+    t.string "trading212_account_id"
+    t.uuid "trading212_item_id", null: false
+    t.datetime "updated_at", null: false
+    t.index ["trading212_item_id", "trading212_account_id"], name: "index_trading212_accounts_on_item_and_account_id", unique: true, where: "(trading212_account_id IS NOT NULL)"
+    t.index ["trading212_item_id"], name: "index_trading212_accounts_on_trading212_item_id"
+  end
+
+  create_table "trading212_items", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
+    t.string "api_key"
+    t.string "api_secret"
+    t.datetime "created_at", null: false
+    t.string "currency"
+    t.string "environment", default: "live", null: false
+    t.uuid "family_id", null: false
+    t.string "name"
+    t.boolean "pending_account_setup", default: false, null: false
+    t.jsonb "raw_instruments_payload", default: [], null: false
+    t.boolean "scheduled_for_deletion", default: false, null: false
+    t.string "status", default: "good", null: false
+    t.datetime "updated_at", null: false
+    t.index ["family_id"], name: "index_trading212_items_on_family_id"
+    t.index ["status"], name: "index_trading212_items_on_status"
+  end
+
   create_table "transactions", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
@@ -2131,6 +2206,11 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
   add_foreign_key "coinbase_items", "families"
   add_foreign_key "coinstats_accounts", "coinstats_items"
   add_foreign_key "coinstats_items", "families"
+  add_foreign_key "contracts", "accounts", column: "linked_account_id", on_delete: :nullify
+  add_foreign_key "contracts", "accounts", on_delete: :nullify
+  add_foreign_key "contracts", "categories", on_delete: :nullify
+  add_foreign_key "contracts", "families", on_delete: :cascade
+  add_foreign_key "contracts", "merchants", on_delete: :nullify
   add_foreign_key "debug_log_entries", "account_providers", on_delete: :nullify
   add_foreign_key "debug_log_entries", "accounts", on_delete: :nullify
   add_foreign_key "debug_log_entries", "families", on_delete: :nullify
@@ -2216,6 +2296,8 @@ ActiveRecord::Schema[7.2].define(version: 2026_06_28_200000) do
   add_foreign_key "tags", "families"
   add_foreign_key "tool_calls", "messages"
   add_foreign_key "trades", "securities"
+  add_foreign_key "trading212_accounts", "trading212_items"
+  add_foreign_key "trading212_items", "families"
   add_foreign_key "transactions", "categories", on_delete: :nullify
   add_foreign_key "transactions", "merchants"
   add_foreign_key "transactions", "transfers", column: "transfer_id"

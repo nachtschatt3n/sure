@@ -136,6 +136,20 @@ Rails.application.routes.draw do
     end
   end
 
+  resources :trading212_items, only: [ :create, :update, :destroy ] do
+    collection do
+      get :select_accounts
+      get :select_existing_account
+      post :link_existing_account
+    end
+
+    member do
+      post :sync
+      get :setup_accounts
+      post :complete_account_setup
+    end
+  end
+
   # CoinStats routes
   resources :coinstats_items, only: [ :index, :new, :create, :update, :destroy ] do
     collection do
@@ -333,6 +347,13 @@ Rails.application.routes.draw do
       member do
         patch :renew
       end
+    end
+  end
+
+  resources :contracts, only: %i[index new create edit update destroy] do
+    collection do
+      post :scan
+      post :enrich
     end
   end
 

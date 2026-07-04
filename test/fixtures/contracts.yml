@@ -1,0 +1,31 @@
+netflix_monthly:
+  family: dylan_family
+  merchant: netflix
+  name: Netflix
+  frequency: monthly
+  expected_amount: 15.99
+  currency: USD
+  expected_day: 5
+  next_due_date: <%= 20.days.from_now.to_date %>
+  status: active
+  source: detected
+
+gym_quarterly:
+  family: dylan_family
+  name: Gym membership
+  frequency: quarterly
+  expected_amount: 90
+  currency: USD
+  next_due_date: <%= 1.month.from_now.to_date %>
+  status: active
+  source: manual
+
+domain_annual:
+  family: dylan_family
+  name: Domain renewal
+  frequency: annual
+  expected_amount: 120
+  currency: USD
+  next_due_date: <%= 3.days.ago.to_date %>
+  status: active
+  source: manual

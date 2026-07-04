@@ -1,0 +1,20 @@
+<section class="space-y-3">
+  <header class="flex items-center justify-between">
+    <div class="flex items-center gap-2">
+      <h2 class="text-lg font-medium text-primary"><%= frequency_label %></h2>
+      <%= render DS::Pill.new(label: count.to_s, tone: :gray, marker: false) %>
+    </div>
+    <div class="text-right">
+      <p class="text-sm font-medium text-primary tabular-nums privacy-sensitive"><%= total_amount.format %></p>
+      <p class="text-xs text-secondary tabular-nums privacy-sensitive">
+        <%= t("contracts.cluster.per_month", amount: monthly_normalized.format) %>
+      </p>
+    </div>
+  </header>
+
+  <div class="grid grid-cols-1 @2xl:grid-cols-2 @5xl:grid-cols-3 gap-3">
+    <% contracts.each do |contract| %>
+      <%= render Contracts::CardComponent.new(contract: contract) %>
+    <% end %>
+  </div>
+</section>

@@ -1,0 +1,70 @@
+<%# locals: (contract:) %>
+<%= styled_form_with model: contract,
+                     url: contract.persisted? ? contract_path(contract) : contracts_path,
+                     method: contract.persisted? ? :patch : :post,
+                     class: "space-y-5" do |f| %>
+  <% if contract.errors.any? %>
+    <div class="rounded-lg bg-container-inset px-4 py-3 text-sm text-destructive">
+      <ul class="list-disc list-inside space-y-1">
+        <% contract.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= f.hidden_field :currency %>
+
+  <%= f.text_field :name,
+                   label: t("contracts.form.fields.name"),
+                   placeholder: t("contracts.form.fields.name_placeholder"),
+                   required: true,
+                   autofocus: true %>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.money_field :expected_amount,
+                      label: t("contracts.form.fields.expected_amount"),
+                      hide_currency: true,
+                      required: true %>
+    <%= f.select :frequency,
+                 options_for_select(Contract.frequencies.keys.map { |k| [ t("contracts.frequencies.#{k}"), k ] }, contract.frequency),
+                 { label: t("contracts.form.fields.frequency") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.number_field :custom_interval_months,
+                       label: t("contracts.form.fields.custom_interval_months"),
+                       min: 1 %>
+    <%= f.number_field :expected_day,
+                       label: t("contracts.form.fields.expected_day"),
+                       min: 1, max: 31 %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.date_field :next_due_date, label: t("contracts.form.fields.next_due_date") %>
+    <%= f.select :status,
+                 options_for_select(Contract.statuses.keys.map { |k| [ t("contracts.statuses.#{k}"), k ] }, contract.status),
+                 { label: t("contracts.form.fields.status") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.collection_select :category_id, Current.family.categories.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.category"), include_blank: t("contracts.form.fields.none") } %>
+    <%= f.collection_select :account_id, Current.family.accounts.visible.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.account"), include_blank: t("contracts.form.fields.none") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.text_field :provider, label: t("contracts.form.fields.provider") %>
+    <%= f.collection_select :linked_account_id, Current.family.accounts.visible.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.linked_account"), include_blank: t("contracts.form.fields.none") } %>
+  </div>
+
+  <%= f.text_area :description, label: t("contracts.form.fields.description"),
+                  placeholder: t("contracts.form.fields.description_placeholder"), rows: 2 %>
+
+  <div class="flex items-center justify-end gap-2 pt-2">
+    <%= render DS::Link.new(text: t("contracts.form.cancel"), variant: "outline", href: contracts_path) %>
+    <%= f.submit contract.persisted? ? t("contracts.form.update") : t("contracts.form.create") %>
+  </div>
+<% end %>
