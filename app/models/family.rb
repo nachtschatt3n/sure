@@ -114,6 +114,13 @@ class Family < ApplicationRecord
   has_many :recurring_transactions, dependent: :destroy
   has_many :contracts, dependent: :destroy
 
+  # True when any member of the family has opted into preview features. Used to
+  # gate preview-only background work (contract detection) so no data is seeded
+  # for families that haven't opted in — the per-request UI gate lives on User.
+  def preview_features_enabled?
+    users.any?(&:preview_features_enabled?)
+  end
+
   # Active contracts grouped by cadence (weekly … annual/custom) with per-cluster
   # counts and totals, plus a normalized "Ø / month" recurring-spend rollup.
   # Scoped to the family's primary currency so mixed-currency contracts aren't
