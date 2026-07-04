@@ -112,6 +112,36 @@ class Family < ApplicationRecord
 
   has_many :llm_usages, dependent: :destroy
   has_many :recurring_transactions, dependent: :destroy
+  has_many :contracts, dependent: :destroy
+
+  # Active contracts grouped by cadence (weekly … annual/custom) with per-cluster
+  # counts and totals, plus a normalized "Ø / month" recurring-spend rollup.
+  # Scoped to the family's primary currency so mixed-currency contracts aren't
+  # summed into one incomparable figure (foreign-currency contracts are excluded
+  # from the rollup until FX conversion lands, mirroring the goals KPI stance).
+  def contracts_overview
+    currency = primary_currency_code
+    active = contracts.active.where(currency: currency).alphabetically.to_a
+
+    clusters = Contract.frequencies.keys.filter_map do |frequency|
+      members = active.select { |c| c.frequency == frequency }
+      next if members.empty?
+
+      {
+        frequency: frequency,
+        count: members.size,
+        total_amount: Money.new(members.sum { |c| c.expected_amount.to_d }, currency),
+        monthly_normalized: Money.new(members.sum(&:monthly_normalized_amount), currency),
+        contracts: members
+      }
+    end
+
+    {
+      clusters: clusters,
+      total_count: active.size,
+      monthly_normalized_total: Money.new(active.sum(&:monthly_normalized_amount), currency)
+    }
+  end
 
   validates :locale, inclusion: { in: I18n.available_locales.map(&:to_s) }
   validates :date_format, inclusion: { in: DATE_FORMATS.map(&:last) }
