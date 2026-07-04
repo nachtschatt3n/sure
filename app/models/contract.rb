@@ -38,6 +38,7 @@ class Contract < ApplicationRecord
             numericality: { only_integer: true, greater_than: 0 },
             allow_nil: true
   validate :custom_interval_required_for_custom
+  validate :linked_records_belong_to_family
 
   scope :alphabetically, -> { order(Arel.sql("LOWER(name) ASC")) }
 
@@ -128,5 +129,15 @@ class Contract < ApplicationRecord
       return if custom_interval_months.to_i.positive?
 
       errors.add(:custom_interval_months, :required_for_custom)
+    end
+
+    # Guard against cross-family assignment via mass-assigned foreign keys: the
+    # linked account/category/merchant must belong to this contract's family.
+    # Provider (global) merchants have no family and are shared, so they're
+    # allowed; only a FamilyMerchant is family-scoped.
+    def linked_records_belong_to_family
+      errors.add(:account, :invalid) if account && account.family_id != family_id
+      errors.add(:category, :invalid) if category && category.family_id != family_id
+      errors.add(:merchant, :invalid) if merchant.is_a?(FamilyMerchant) && merchant.family_id != family_id
     end
 end
