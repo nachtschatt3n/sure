@@ -1,0 +1,70 @@
+---
+en:
+  contracts:
+    index:
+      title: Contracts
+      subtitle: Your recurring payments, grouped by how often they bill.
+      new_contract: New contract
+      scan: Scan
+    frequencies:
+      weekly: Weekly
+      monthly: Monthly
+      quarterly: Quarterly
+      semiannual: Every 6 months
+      annual: Yearly
+      custom: Custom
+    statuses:
+      active: Active
+      paused: Paused
+      cancelled: Cancelled
+    overview:
+      monthly_total_label: Ø per month
+      monthly_total_sub: Normalized across every cadence
+      total_count_label: Active contracts
+      total_count_sub:
+        one: across 1 cadence
+        other: across %{count} cadences
+    cluster:
+      per_month: "%{amount} / month"
+    card:
+      next_due: "Next %{date}"
+      overdue:
+        one: 1 day overdue
+        other: "%{count} days overdue"
+    empty_state:
+      heading: No contracts yet
+      body: Add a contract by hand, or scan your transactions to detect recurring payments across every cadence.
+    form:
+      cancel: Cancel
+      create: Create contract
+      update: Save contract
+      fields:
+        name: Name
+        name_placeholder: e.g. Netflix, car insurance, gym
+        expected_amount: Amount
+        frequency: Billing frequency
+        custom_interval_months: Custom interval (months)
+        expected_day: Day of month
+        next_due_date: Next due date
+        status: Status
+        category: Category
+        account: Account
+        provider: Provider
+        none: None
+    new:
+      title: New contract
+      subtitle: Track a recurring payment on any cadence.
+    edit:
+      title: Edit contract
+      delete: Delete
+    create:
+      success: Contract created.
+    update:
+      success: Contract saved.
+    destroy:
+      success: Contract deleted.
+    scan:
+      success:
+        zero: No new contracts detected.
+        one: Detected 1 new contract.
+        other: Detected %{count} new contracts.

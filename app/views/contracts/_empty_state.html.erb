@@ -1,0 +1,14 @@
+<div class="bg-container rounded-xl shadow-border-xs py-20">
+  <div class="flex flex-col items-center text-center max-w-md mx-auto px-6">
+    <div class="w-24 h-24 rounded-full bg-surface-inset flex items-center justify-center mb-5 text-secondary">
+      <%= icon("file-text", size: "2xl") %>
+    </div>
+    <h2 class="text-lg font-medium text-primary mb-2"><%= t("contracts.empty_state.heading") %></h2>
+    <p class="text-sm text-secondary leading-relaxed mb-5"><%= t("contracts.empty_state.body") %></p>
+
+    <div class="flex items-center gap-2">
+      <%= render DS::Button.new(text: t("contracts.index.scan"), href: scan_contracts_path, method: :post, variant: :outline, icon: "refresh-cw") %>
+      <%= render DS::Link.new(text: t("contracts.index.new_contract"), variant: "primary", href: new_contract_path, icon: "plus") %>
+    </div>
+  </div>
+</div>
