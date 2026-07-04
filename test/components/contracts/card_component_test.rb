@@ -23,4 +23,13 @@ class Contracts::CardComponentTest < ViewComponent::TestCase
 
     assert_text(/Next/i)
   end
+
+  test "warns when a detected price increase is present" do
+    contract = contracts(:netflix_monthly)
+    contract.update!(previous_amount: 12.99, expected_amount: 15.99)
+
+    render_inline(Contracts::CardComponent.new(contract: contract))
+
+    assert_text(/from/i)
+  end
 end

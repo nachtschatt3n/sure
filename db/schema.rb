@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_07_04_120000) do
+ActiveRecord::Schema[7.2].define(version: 2026_07_04_160000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -514,6 +514,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_07_04_120000) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.decimal "previous_amount", precision: 19, scale: 4
     t.index ["account_id"], name: "index_contracts_on_account_id"
     t.index ["category_id"], name: "index_contracts_on_category_id"
     t.index ["family_id", "frequency"], name: "index_contracts_on_family_id_and_frequency"

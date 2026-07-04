@@ -34,6 +34,7 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     assert_equal "monthly", contract.frequency
     assert_equal BigDecimal("9.99"), contract.expected_amount
     assert contract.source_detected?
+    assert_not contract.price_changed?
   end
 
   test "detects an annual cadence from two yearly charges of a non-trivial amount" do
@@ -54,16 +55,56 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     assert_equal "quarterly", @family.contracts.find_by(name: "Water bill").frequency
   end
 
-  test "collapses the same charge seen under a merchant and a raw bank name" do
-    post_series(name: "NETFLIX.COM", amount: 15.99, count: 5, gap: 30, merchant: merchants(:netflix))
-    post_series(name: "PAYPAL *NETFLIX", amount: 15.99, count: 5, gap: 30, last_days_ago: 12)
+  test "merges a vendor split across merchant-tagged and raw-name charges" do
+    # The same monthly charge, alternately tagged with a merchant and left as a
+    # raw bank name — must collapse to one contract, not split below threshold.
+    6.times do |i|
+      create_transaction(
+        account: @account, name: "Netflix", merchant: (i.even? ? merchants(:netflix) : nil),
+        amount: 15.99, currency: "USD", date: (Date.current - 3 - (i * 30)).to_date
+      )
+    end
 
     assert_difference "@family.contracts.count", 1 do
       Contract::Identifier.new(@family).identify
     end
+    contract = @family.contracts.sole
+    assert_equal "monthly", contract.frequency
+    assert_equal merchants(:netflix).id, contract.merchant_id
+  end
 
-    contract = @family.contracts.find_by(expected_amount: 15.99)
-    assert_equal merchants(:netflix).id, contract.merchant_id, "keeps the merchant-linked candidate"
+  test "detects a sequential price increase and records the previous amount" do
+    # Five months at 9.99, then three at 12.99 — one contract that got pricier.
+    8.times do |i|
+      create_transaction(
+        account: @account, name: "Spotify",
+        amount: (i < 5 ? 9.99 : 12.99), currency: "USD",
+        date: (Date.current - 3 - ((7 - i) * 30)).to_date
+      )
+    end
+
+    Contract::Identifier.new(@family).identify
+
+    contract = @family.contracts.find_by(name: "Spotify")
+    assert_equal BigDecimal("12.99"), contract.expected_amount
+    assert_equal BigDecimal("9.99"), contract.previous_amount
+    assert contract.price_increased?
+  end
+
+  test "keeps concurrent same-vendor contracts at different amounts separate" do
+    # Two subscriptions from one vendor, billed monthly ~15 days apart — must
+    # stay two contracts and NOT be read as a price change.
+    6.times do |i|
+      create_transaction(account: @account, name: "Apple", amount: 34.95, currency: "USD", date: (Date.current - 3 - (i * 30)).to_date)
+      create_transaction(account: @account, name: "Apple", amount: 22.49, currency: "USD", date: (Date.current - 18 - (i * 30)).to_date)
+    end
+
+    Contract::Identifier.new(@family).identify
+
+    apples = @family.contracts.where(name: "Apple")
+    assert_equal 2, apples.count
+    assert_equal [ BigDecimal("22.49"), BigDecimal("34.95") ], apples.pluck(:expected_amount).sort
+    assert apples.none?(&:price_changed?)
   end
 
   test "ignores income (inflow) and transfers" do
@@ -76,8 +117,6 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
   end
 
   test "ignores incidental micro-purchases" do
-    # Two look-alike bakery visits ~6 months apart: below the min amount, and a
-    # sparse cadence with no merchant and a trivial amount.
     post_series(name: "Bakery", amount: 2.50, count: 2, gap: 182, last_days_ago: 20)
 
     assert_no_difference "@family.contracts.count" do
@@ -86,7 +125,6 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
   end
 
   test "ignores an irregular sub-monthly series (parking, not a subscription)" do
-    # Five charges but wildly inconsistent gaps — not a real weekly cadence.
     [ 3, 40, 55, 120, 180 ].each do |days_ago|
       create_transaction(account: @account, name: "Q Park", amount: 5.50, currency: "USD", date: days_ago.days.ago.to_date)
     end
@@ -97,7 +135,6 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
   end
 
   test "requires enough occurrences for the cadence" do
-    # Only 3 monthly charges — below the monthly minimum of 4.
     post_series(name: "Maybe monthly", amount: 12, count: 3, gap: 30)
 
     assert_no_difference "@family.contracts.count" do
@@ -106,7 +143,6 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
   end
 
   test "ignores a stale series whose last charge is long past" do
-    # Six monthly charges, but the most recent was ~7 months ago (cancelled).
     post_series(name: "Old gym", amount: 29.99, count: 6, gap: 30, last_days_ago: 210)
 
     assert_no_difference "@family.contracts.count" do
