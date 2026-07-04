@@ -54,7 +54,14 @@
                             { label: t("contracts.form.fields.account"), include_blank: t("contracts.form.fields.none") } %>
   </div>
 
-  <%= f.text_field :provider, label: t("contracts.form.fields.provider") %>
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.text_field :provider, label: t("contracts.form.fields.provider") %>
+    <%= f.collection_select :linked_account_id, Current.family.accounts.visible.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.linked_account"), include_blank: t("contracts.form.fields.none") } %>
+  </div>
+
+  <%= f.text_area :description, label: t("contracts.form.fields.description"),
+                  placeholder: t("contracts.form.fields.description_placeholder"), rows: 2 %>
 
   <div class="flex items-center justify-end gap-2 pt-2">
     <%= render DS::Link.new(text: t("contracts.form.cancel"), variant: "outline", href: contracts_path) %>

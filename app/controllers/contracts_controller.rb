@@ -48,6 +48,11 @@ class ContractsController < ApplicationController
     redirect_to contracts_path, notice: t(".success", count: created)
   end
 
+  def enrich
+    EnrichContractsJob.perform_later(Current.family.id)
+    redirect_to contracts_path, notice: t(".queued")
+  end
+
   private
     def set_contract
       @contract = Current.family.contracts.find(params[:id])
@@ -55,9 +60,9 @@ class ContractsController < ApplicationController
 
     def contract_params
       params.require(:contract).permit(
-        :name, :merchant_id, :category_id, :account_id, :frequency,
+        :name, :merchant_id, :category_id, :account_id, :linked_account_id, :frequency,
         :custom_interval_months, :expected_amount, :currency, :expected_day,
-        :next_due_date, :status, :provider, :cancellation_notice_days, :notes
+        :next_due_date, :status, :provider, :cancellation_notice_days, :notes, :description
       )
     end
 end

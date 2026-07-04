@@ -150,6 +150,16 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     end
   end
 
+  test "auto-links a detected contract to a matching loan account" do
+    accounts(:loan).update!(name: "CreditPlus Auto")
+    post_series(name: "Creditplus Bank", amount: 649.27, count: 6, gap: 30)
+
+    Contract::Identifier.new(@family).identify
+
+    contract = @family.contracts.where("name ILIKE 'Creditplus%'").sole
+    assert_equal accounts(:loan).id, contract.linked_account_id
+  end
+
   test "is idempotent and never clobbers an existing contract" do
     post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
 

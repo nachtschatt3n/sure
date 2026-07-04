@@ -7,6 +7,8 @@ en:
         merchant: Merchant
         category: Category
         account: Account
+        linked_account: Linked account
+        description: Description
         frequency: Frequency
         custom_interval_months: Custom interval (months)
         expected_amount: Expected amount

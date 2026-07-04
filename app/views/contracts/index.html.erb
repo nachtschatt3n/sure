@@ -9,6 +9,9 @@
     </div>
 
     <div class="flex items-center gap-2 shrink-0">
+      <% if @overview[:total_count].positive? %>
+        <%= render DS::Button.new(text: t(".enrich"), href: enrich_contracts_path, method: :post, variant: :outline, icon: "sparkles") %>
+      <% end %>
       <%= render DS::Button.new(text: t(".scan"), href: scan_contracts_path, method: :post, variant: :outline, icon: "refresh-cw") %>
       <%= render DS::Link.new(text: t(".new_contract"), variant: "primary", href: new_contract_path, icon: "plus") %>
     </div>

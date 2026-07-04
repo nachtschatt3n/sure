@@ -74,4 +74,11 @@ class ContractsControllerTest < ActionDispatch::IntegrationTest
     assert_redirected_to contracts_path
     assert_match(/2/, flash[:notice])
   end
+
+  test "enrich enqueues the enrichment job" do
+    assert_enqueued_with(job: EnrichContractsJob) do
+      post enrich_contracts_url
+    end
+    assert_redirected_to contracts_path
+  end
 end

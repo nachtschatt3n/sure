@@ -170,6 +170,7 @@ class Contract
             name: block[:name],
             merchant_id: block[:merchant_id],
             account_id: block[:account_id],
+            linked_account_id: linked_account_id_for(block[:vendor]),
             currency: block[:currency],
             frequency: block[:cadence],
             expected_amount: block[:amount],
@@ -178,6 +179,25 @@ class Contract
             next_due_date: advance(block[:last], block[:cadence])
           )
         end
+      end
+
+      # Loan / investment accounts the contract might relate to, canonicalized.
+      def linkable_accounts
+        @linkable_accounts ||= family.accounts.visible
+          .where(accountable_type: %w[Loan Investment])
+          .pluck(:id, :name)
+          .map { |id, name| { id: id, first_token: canonicalize(name).split.first } }
+      end
+
+      # Conservatively link a detected contract to a loan/investment account when
+      # their vendor names share a distinctive leading token (e.g. "creditplus",
+      # "trading") — enough to catch a loan repayment or an investment funding
+      # transfer without mislinking generic names. Left nil otherwise.
+      def linked_account_id_for(vendor)
+        token = vendor.to_s.split.first
+        return nil if token.nil? || token.length < 6
+
+        linkable_accounts.find { |a| a[:first_token] == token }&.dig(:id)
       end
 
       # Seed a detected contract unless the family already has one for this
