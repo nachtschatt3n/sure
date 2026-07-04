@@ -28,7 +28,7 @@ class Contract < ApplicationRecord
     detected: "detected"
   }, default: "manual", validate: true, prefix: :source
 
-  monetize :expected_amount
+  monetize :expected_amount, :previous_amount
 
   validates :name, presence: true, length: { maximum: 255 }
   validates :expected_amount, presence: true, numericality: { greater_than: 0 }
@@ -82,6 +82,16 @@ class Contract < ApplicationRecord
 
   def next_due
     next_due_date
+  end
+
+  # True when the expected amount differs from the last-known amount (a price
+  # change was detected). `price_increased?` is the one worth warning about.
+  def price_changed?
+    previous_amount.present? && previous_amount != expected_amount
+  end
+
+  def price_increased?
+    previous_amount.present? && previous_amount < expected_amount
   end
 
   # A contract is overdue when its next expected charge date has passed and it

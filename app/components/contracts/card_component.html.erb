@@ -16,6 +16,9 @@
       <% if overdue? %>
         <%= render DS::Pill.new(label: overdue_label, tone: :warning, marker: false) %>
       <% end %>
+      <% if price_increased? %>
+        <%= render DS::Pill.new(label: price_increase_label, tone: :amber, marker: false, icon: "trending-up") %>
+      <% end %>
     </div>
     <% if next_due_label.present? && !overdue? %>
       <p class="text-xs text-secondary shrink-0"><%= t("contracts.card.next_due", date: next_due_label) %></p>

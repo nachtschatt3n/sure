@@ -1,49 +1,54 @@
 class Contract
   # Suggests Contract candidates for a family and seeds them as `source:
-  # "detected"` rows the user then curates. Deliberately non-destructive — never
-  # touches an existing contract, so manual edits and user-authored contracts
-  # always win.
+  # "detected"` rows the user then curates. Non-destructive — never touches an
+  # existing contract, so manual edits and user-authored contracts always win.
   #
-  # The pipeline is candidate → dedupe → persist:
+  # The method is vendor-centric and precision-first (a wrong suggestion costs a
+  # deletion, so we favor precision over recall):
   #
-  #   1. Build candidates from repeated *expense* charges over the last 24
-  #      months, grouped by merchant-or-name + amount + account. A group becomes
-  #      a candidate only if its charges recur on a recognizable cadence — enough
-  #      occurrences, consistent gaps, and a recent-enough last charge.
-  #   2. Collapse duplicates: the same real charge is often picked up twice, once
-  #      under a detected merchant and once under the raw bank-statement name (or
-  #      a PayPal intermediary). Candidates sharing cadence + account + currency +
-  #      amount are merged, preferring the merchant-linked one.
-  #   3. Persist the survivors, skipping any the family already has a contract
-  #      for (so re-scanning is idempotent).
+  #   1. Take repeated *expense* charges (positive, non-transfer) over 24 months.
+  #      Income, salary, and internal transfers are excluded at the source.
+  #   2. Identify the vendor by a canonical of the merchant name (or the raw
+  #      bank-statement name when unmerchanted), so the same charge seen once
+  #      with a detected merchant and once as a raw name isn't split in two.
+  #   3. Group by vendor + account + exact amount into "blocks", and keep a block
+  #      only if its charges recur on a recognizable cadence (enough occurrences,
+  #      consistent gaps). Exact-amount blocks keep genuinely concurrent
+  #      same-vendor contracts separate (e.g. three house loans, two Apple subs).
+  #   4. Walk each block forward along its cadence grid to absorb a *sequential*
+  #      price change (e.g. Hetzner 19.55 -> 25.68), recording the prior amount.
+  #      A charge that arrives mid-cycle, or an old amount that keeps recurring,
+  #      is a concurrent charge and is left alone — so price changes and parallel
+  #      subscriptions are told apart.
+  #   5. Drop stale (cancelled) series, dedupe, and persist the survivors that the
+  #      family doesn't already have a contract for.
   #
-  # Detection is intentionally conservative: a wrong suggestion costs the user a
-  # deletion, so we favor precision over recall. Income and transfers are
-  # excluded (only positive-amount, non-transfer transactions), micro-purchases
-  # are ignored, and sparse long-cadence patterns need a merchant or a
-  # non-trivial amount to qualify.
+  # Long-cadence (annual) coverage is inherently limited by gaps in transaction
+  # history and is expected to be completed by manual curation.
   class Identifier
     LOOKBACK_MONTHS = 24
-
-    # Below this, a repeated charge is treated as incidental spend (parking,
-    # bakery, coffee) rather than a contract.
     MIN_AMOUNT = BigDecimal("3")
 
-    # Long cadences only get 2-4 hits in 24 months, which is hard to tell from
-    # coincidence — so require either a recognized merchant or a non-trivial
-    # amount (insurance, domains, memberships) before trusting them.
-    SPARSE_CADENCE_MIN_AMOUNT = BigDecimal("15")
+    # Long cadences get only 2-4 hits in 24 months, so a bare pair is hard to
+    # tell from coincidence — require a recognized merchant or a non-trivial
+    # amount, and suppress vendors that bill many different amounts (retail).
+    SPARSE_MIN_AMOUNT = BigDecimal("15")
+    RETAIL_DISTINCT_AMOUNTS = 4
 
-    # nominal gap (days), the window a median gap must land in, the minimum
-    # number of occurrences, and how recent the last charge must be to still be
-    # considered active.
+    # nominal gap (days), the window a median gap must fall in, the minimum number
+    # of occurrences, and how recent the last charge must be to still be active.
     CADENCES = [
-      { name: "weekly",     gap: 7,   low: 5,   high: 10,  min_occurrences: 6, recency_days: 21 },
-      { name: "monthly",    gap: 30,  low: 24,  high: 38,  min_occurrences: 4, recency_days: 50 },
-      { name: "quarterly",  gap: 91,  low: 75,  high: 110, min_occurrences: 3, recency_days: 130 },
-      { name: "semiannual", gap: 182, low: 150, high: 210, min_occurrences: 2, recency_days: 250 },
-      { name: "annual",     gap: 365, low: 320, high: 410, min_occurrences: 2, recency_days: 430 }
+      { name: "weekly",     gap: 7,   low: 5,   high: 10,  min: 6, recency: 24 },
+      { name: "monthly",    gap: 30,  low: 24,  high: 38,  min: 4, recency: 55 },
+      { name: "quarterly",  gap: 91,  low: 78,  high: 104, min: 3, recency: 135 },
+      { name: "semiannual", gap: 182, low: 150, high: 210, min: 2, recency: 260 },
+      { name: "annual",     gap: 365, low: 320, high: 410, min: 2, recency: 430 }
     ].freeze
+    CADENCE_BY_NAME = CADENCES.index_by { |c| c[:name] }.freeze
+
+    # Corporate/legal and address-noise tokens dropped when canonicalizing a
+    # vendor name so "Hetzner Online GmbH" and "Hetzner" collapse together.
+    NOISE_TOKENS = %w[gmbh ag ug kg se co ltd inc llc bv sarl sca cie et mbh kgaa ohg eg com de wholesale online].freeze
 
     attr_reader :family
 
@@ -53,43 +58,76 @@ class Contract
 
     # Seeds detected contracts and returns the number created.
     def identify
-      persist(dedupe(build_candidates))
+      candidates = build_blocks
+      apply_price_changes(candidates)
+      candidates.reject! { |c| stale?(c) }
+      persist(dedupe(candidates))
     end
 
     private
-      def build_candidates
-        merchant_names = family.merchants.pluck(:id, :name).to_h
+      # One block per vendor + account + currency + exact amount that recurs on a
+      # cadence. Recency is deferred to after price-change continuation so an old
+      # price can still be carried forward to a current one.
+      def build_blocks
+        by_amount = charges.group_by { |c| [ c[:vendor], c[:account_id], c[:currency], c[:amount] ] }
 
-        grouped_expense_entries.filter_map do |(identifier, amount, currency, account_id), entries|
+        by_amount.filter_map do |(vendor, account_id, currency, amount), rows|
           next if amount < MIN_AMOUNT
 
-          dates = entries.map(&:date).uniq.sort
+          dates = rows.map { |r| r[:date] }.uniq.sort
           cadence = classify(dates)
           next if cadence.nil?
-          next if sparse?(cadence) && amount < SPARSE_CADENCE_MIN_AMOUNT && identifier.first != :merchant
+          next if sparse_coincidence?(cadence, amount, vendor, account_id)
 
-          type, value = identifier
-          name = type == :merchant ? merchant_names[value] : value
-          next if name.blank?
-
+          representative = rows.max_by { |r| [ r[:merchant] ? 1 : 0, r[:date] ] }
           {
-            name: name,
-            merchant_id: type == :merchant ? value : nil,
-            account_id: account_id,
-            currency: currency,
-            frequency: cadence[:name],
-            expected_amount: amount,
-            expected_day: median(dates.map(&:day)),
-            next_due_date: advance(dates.last, cadence[:name]),
-            occurrences: dates.size
+            vendor: vendor, account_id: account_id, currency: currency,
+            amount: amount, cadence: cadence[:name], gap: cadence[:gap],
+            dates: dates, last: dates.last, occurrences: dates.size,
+            name: representative[:name],
+            merchant_id: rows.map { |r| r[:merchant_id] }.compact.first
           }
         end
       end
 
-      # The cadence a series of charge dates fits, or nil. A fit needs the median
-      # gap to land in a cadence window, enough occurrences for that cadence,
-      # consistent gaps (most within ~40% of the nominal), and a recent last
-      # charge (so cancelled subscriptions age out).
+      # Extend each block along its cadence grid to absorb a sequential price
+      # change. A charge only continues the series if it lands ~one period out
+      # (0.6-1.5x the gap); a charge that arrives sooner is a concurrent one. An
+      # amount change is only accepted as a price change if the old amount does
+      # not recur afterwards (otherwise the two amounts are parallel subs).
+      def apply_price_changes(blocks)
+        by_vendor = charges.group_by { |c| [ c[:vendor], c[:account_id], c[:currency] ] }
+
+        blocks.each do |block|
+          gap = block[:gap]
+          prev_last = block[:last]
+          future = by_vendor[[ block[:vendor], block[:account_id], block[:currency] ]]
+                   .select { |r| r[:date] > block[:last] && r[:amount] >= MIN_AMOUNT }
+                   .sort_by { |r| r[:date] }
+
+          future.each do |row|
+            delta = (row[:date] - prev_last).to_i
+            break if delta > gap * 1.5
+            next if delta < gap * 0.6
+
+            if row[:amount] != block[:amount]
+              old = block[:amount]
+              recurs_later = by_vendor[[ block[:vendor], block[:account_id], block[:currency] ]]
+                             .any? { |r| r[:amount] == old && r[:date] > row[:date] }
+              break if recurs_later
+
+              block[:previous_amount] = old
+            end
+            block[:amount] = row[:amount]
+            block[:last] = row[:date]
+            block[:occurrences] += 1
+            prev_last = row[:date]
+          end
+        end
+      end
+
+      # The cadence a set of dates fits (gap window + occurrences + gap
+      # consistency), or nil. Recency is applied separately, post-continuation.
       def classify(dates)
         return nil if dates.size < 2
 
@@ -97,8 +135,7 @@ class Contract
         median_gap = median(gaps)
         cadence = CADENCES.find { |c| median_gap.between?(c[:low], c[:high]) }
         return nil if cadence.nil?
-        return nil if dates.size < cadence[:min_occurrences]
-        return nil if (Date.current - dates.last).to_i > cadence[:recency_days]
+        return nil if dates.size < cadence[:min]
 
         tolerance = (cadence[:gap] * 0.4).round
         consistent = gaps.count { |g| (g - cadence[:gap]).abs <= tolerance }
@@ -107,51 +144,50 @@ class Contract
         cadence
       end
 
-      def sparse?(cadence)
-        cadence[:min_occurrences] <= 2
+      def sparse_coincidence?(cadence, amount, vendor, account_id)
+        return false if cadence[:min] > 2
+
+        amount < SPARSE_MIN_AMOUNT || amount_diversity.fetch([ vendor, account_id ], 0) > RETAIL_DISTINCT_AMOUNTS
       end
 
-      # Same merchant-or-name + amount + currency + account grouping shape as
-      # RecurringTransaction::Identifier so detection and reconciliation agree.
-      # Restricted to expenses (inflow is negative in Sure, so positive-only
-      # drops salary/benefits) and non-transfer transactions.
-      def grouped_expense_entries
-        family.entries
-              .joins("INNER JOIN transactions ON transactions.id = entries.entryable_id")
-              .where(entryable_type: "Transaction")
-              .where("entries.date >= ?", LOOKBACK_MONTHS.months.ago.to_date)
-              .where("entries.amount > 0")
-              .where.not("transactions.kind": Transaction::TRANSFER_KINDS)
-              .includes(:entryable)
-              .to_a
-              .select { |entry| entry.entryable.is_a?(Transaction) }
-              .group_by do |entry|
-                transaction = entry.entryable
-                identifier = transaction.merchant_id.present? ? [ :merchant, transaction.merchant_id ] : [ :name, entry.name ]
-                [ identifier, entry.amount.round(2), entry.currency, entry.account_id ]
-              end
+      def stale?(block)
+        (Date.current - block[:last]).to_i > CADENCE_BY_NAME.fetch(block[:cadence])[:recency]
       end
 
-      # Collapse candidates that are the same charge seen under both a merchant
-      # and a raw bank-name (or PayPal) group: same cadence + account + currency
-      # + amount. Keep the merchant-linked one, then the one with more
-      # occurrences, then the shorter (cleaner) name.
-      def dedupe(candidates)
-        candidates
-          .group_by { |c| [ c[:frequency], c[:account_id], c[:currency], c[:expected_amount] ] }
+      # Collapse a price-changed block that also produced a standalone block at
+      # its new amount; genuinely concurrent different-amount contracts survive
+      # because they differ on the final amount.
+      def dedupe(blocks)
+        blocks
+          .group_by { |b| [ b[:vendor], b[:account_id], b[:currency], b[:cadence], b[:amount] ] }
           .values
-          .map do |group|
-            group.max_by { |c| [ c[:merchant_id] ? 1 : 0, c[:occurrences], -c[:name].length ] }
-          end
+          .map { |group| group.max_by { |b| b[:occurrences] } }
       end
 
-      def persist(candidates)
-        candidates.count { |attrs| create_detected_contract(attrs.except(:occurrences)) }
+      def persist(blocks)
+        blocks.count do |block|
+          create_detected_contract(
+            name: block[:name],
+            merchant_id: block[:merchant_id],
+            account_id: block[:account_id],
+            currency: block[:currency],
+            frequency: block[:cadence],
+            expected_amount: block[:amount],
+            previous_amount: block[:previous_amount],
+            expected_day: median(block[:dates].map(&:day)),
+            next_due_date: advance(block[:last], block[:cadence])
+          )
+        end
       end
 
-      # Create only when no contract already covers this merchant-or-name +
-      # account + currency + cadence, so re-scanning is idempotent and never
-      # clobbers a curated row.
+      # Seed a detected contract unless the family already has one for this
+      # vendor + account + currency + cadence. Two guards keep re-scans idempotent
+      # without collapsing genuinely concurrent contracts:
+      #   - never add next to a user-curated (non-detected) contract for the same
+      #     vendor + cadence — the user owns that surface;
+      #   - among detected rows, uniqueness includes the amount, so two concurrent
+      #     subscriptions from one vendor (e.g. two Apple plans) can both exist,
+      #     while a re-scan of the same block is a no-op.
       def create_detected_contract(attrs)
         scope = family.contracts.where(
           frequency: attrs[:frequency],
@@ -163,10 +199,54 @@ class Contract
         else
           scope.where(merchant_id: nil, name: attrs[:name])
         end
-        return false if scope.exists?
+        return false if scope.where.not(source: "detected").exists?
+        return false if scope.where(source: "detected", expected_amount: attrs[:expected_amount]).exists?
 
         family.contracts.create!(attrs.merge(source: "detected"))
         true
+      end
+
+      # Expense charges over the lookback window as plain hashes, with the vendor
+      # canonicalized. Inflow is negative in Sure, so positive-only drops salary
+      # and benefits; transfer kinds drop internal moves.
+      def charges
+        @charges ||= begin
+          merchant_names = family.merchants.pluck(:id, :name).to_h
+
+          family.entries
+                .joins("INNER JOIN transactions ON transactions.id = entries.entryable_id AND entries.entryable_type = 'Transaction'")
+                .where(entryable_type: "Transaction")
+                .where("entries.date >= ?", LOOKBACK_MONTHS.months.ago.to_date)
+                .where("entries.amount > 0")
+                .where.not("transactions.kind": Transaction::TRANSFER_KINDS)
+                .pluck("transactions.merchant_id", "entries.name", "entries.amount", "entries.currency", "entries.account_id", "entries.date")
+                .filter_map do |merchant_id, name, amount, currency, account_id, date|
+                  display_name = merchant_id ? merchant_names[merchant_id] : name
+                  vendor = canonicalize(display_name)
+                  next if vendor.blank?
+
+                  {
+                    merchant_id: merchant_id, merchant: merchant_id.present?,
+                    vendor: vendor, name: display_name,
+                    amount: amount.round(2), currency: currency,
+                    account_id: account_id, date: date
+                  }
+                end
+        end
+      end
+
+      # Distinct amounts a vendor bills at a given account — a proxy for "retail"
+      # (many amounts) vs "subscription" (one or two).
+      def amount_diversity
+        @amount_diversity ||= charges
+          .group_by { |c| [ c[:vendor], c[:account_id] ] }
+          .transform_values { |rows| rows.map { |r| r[:amount] }.uniq.size }
+      end
+
+      def canonicalize(name)
+        tokens = name.to_s.downcase.tr("äöüß", "aous").gsub(/[^a-z0-9 ]/, " ").split
+        tokens = tokens.reject { |t| NOISE_TOKENS.include?(t) || t.length < 3 || t.match?(/\A\d+\z/) }
+        tokens.first(2).join(" ")
       end
 
       def advance(date, frequency)

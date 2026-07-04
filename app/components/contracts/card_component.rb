@@ -26,4 +26,12 @@ class Contracts::CardComponent < ApplicationComponent
   def overdue_label
     I18n.t("contracts.card.overdue", count: contract.days_overdue)
   end
+
+  def price_increased?
+    contract.price_increased?
+  end
+
+  def price_increase_label
+    I18n.t("contracts.card.price_increased", amount: contract.previous_amount_money.format)
+  end
 end

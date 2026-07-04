@@ -515,6 +515,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_07_25_000000) do
     t.text "notes"
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
+    t.decimal "previous_amount", precision: 19, scale: 4
     t.index ["account_id"], name: "index_contracts_on_account_id"
     t.index ["category_id"], name: "index_contracts_on_category_id"
     t.index ["family_id", "frequency"], name: "index_contracts_on_family_id_and_frequency"

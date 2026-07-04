@@ -31,6 +31,7 @@ en:
       overdue:
         one: 1 day overdue
         other: "%{count} days overdue"
+      price_increased: "↑ from %{amount}"
     empty_state:
       heading: No contracts yet
       body: Add a contract by hand, or scan your transactions to detect recurring payments across every cadence.

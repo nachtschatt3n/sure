@@ -54,6 +54,19 @@ class ContractTest < ActiveSupport::TestCase
     assert_equal @contract.next_due_date, @contract.next_due
   end
 
+  test "price change predicates reflect previous_amount" do
+    assert_not @contract.price_changed?
+    assert_not @contract.price_increased?
+
+    @contract.update!(previous_amount: 12.99, expected_amount: 15.99)
+    assert @contract.price_changed?
+    assert @contract.price_increased?
+
+    @contract.update!(previous_amount: 19.99)
+    assert @contract.price_changed?
+    assert_not @contract.price_increased?
+  end
+
   test "requires a positive expected amount, a name, and a currency" do
     assert_not @family.contracts.new(frequency: :monthly, expected_amount: 10, currency: "USD").valid?
     assert_not @family.contracts.new(name: "X", frequency: :monthly, expected_amount: 0, currency: "USD").valid?
