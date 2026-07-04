@@ -5,6 +5,9 @@ class Contract < ApplicationRecord
   belongs_to :merchant, optional: true
   belongs_to :category, optional: true
   belongs_to :account, optional: true
+  # The loan/investment/asset account this contract relates to (the debt it
+  # pays down, the investment it funds), distinct from the billing account.
+  belongs_to :linked_account, class_name: "Account", optional: true
 
   # String-backed enums (Postgres enum columns store the label directly), so the
   # hash form maps each name to its own string rather than an integer.
@@ -147,6 +150,7 @@ class Contract < ApplicationRecord
     # allowed; only a FamilyMerchant is family-scoped.
     def linked_records_belong_to_family
       errors.add(:account, :invalid) if account && account.family_id != family_id
+      errors.add(:linked_account, :invalid) if linked_account && linked_account.family_id != family_id
       errors.add(:category, :invalid) if category && category.family_id != family_id
       errors.add(:merchant, :invalid) if merchant.is_a?(FamilyMerchant) && merchant.family_id != family_id
     end

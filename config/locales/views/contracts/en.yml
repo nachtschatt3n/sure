@@ -6,6 +6,7 @@ en:
       subtitle: Your recurring payments, grouped by how often they bill.
       new_contract: New contract
       scan: Scan
+      enrich: Enrich with AI
     frequencies:
       weekly: Weekly
       monthly: Monthly
@@ -50,7 +51,10 @@ en:
         status: Status
         category: Category
         account: Account
+        linked_account: Linked account (loan / investment)
         provider: Provider
+        description: Description
+        description_placeholder: e.g. "Municipal water & waste" or "Health insurance premium"
         none: None
     new:
       title: New contract
@@ -69,3 +73,5 @@ en:
         zero: No new contracts detected.
         one: Detected 1 new contract.
         other: Detected %{count} new contracts.
+    enrich:
+      queued: Enriching contracts with AI — descriptions will appear shortly.

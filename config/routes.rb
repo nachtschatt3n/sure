@@ -339,6 +339,7 @@ Rails.application.routes.draw do
   resources :contracts, only: %i[index new create edit update destroy] do
     collection do
       post :scan
+      post :enrich
     end
   end
 

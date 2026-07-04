@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_07_04_160000) do
+ActiveRecord::Schema[7.2].define(version: 2026_07_04_180000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -515,11 +515,14 @@ ActiveRecord::Schema[7.2].define(version: 2026_07_04_160000) do
     t.datetime "created_at", null: false
     t.datetime "updated_at", null: false
     t.decimal "previous_amount", precision: 19, scale: 4
+    t.text "description"
+    t.uuid "linked_account_id"
     t.index ["account_id"], name: "index_contracts_on_account_id"
     t.index ["category_id"], name: "index_contracts_on_category_id"
     t.index ["family_id", "frequency"], name: "index_contracts_on_family_id_and_frequency"
     t.index ["family_id", "status"], name: "index_contracts_on_family_id_and_status"
     t.index ["family_id"], name: "index_contracts_on_family_id"
+    t.index ["linked_account_id"], name: "index_contracts_on_linked_account_id"
     t.index ["merchant_id"], name: "index_contracts_on_merchant_id"
     t.check_constraint "char_length(name::text) <= 255", name: "chk_contracts_name_length"
     t.check_constraint "expected_amount > 0::numeric", name: "chk_contracts_expected_amount_positive"
@@ -2162,6 +2165,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_07_04_160000) do
   add_foreign_key "coinbase_items", "families"
   add_foreign_key "coinstats_accounts", "coinstats_items"
   add_foreign_key "coinstats_items", "families"
+  add_foreign_key "contracts", "accounts", column: "linked_account_id", on_delete: :nullify
   add_foreign_key "contracts", "accounts", on_delete: :nullify
   add_foreign_key "contracts", "categories", on_delete: :nullify
   add_foreign_key "contracts", "families", on_delete: :cascade

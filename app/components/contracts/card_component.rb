@@ -13,6 +13,14 @@ class Contracts::CardComponent < ApplicationComponent
     contract.category&.name
   end
 
+  def description
+    contract.description.presence
+  end
+
+  def linked_account_label
+    contract.linked_account&.name
+  end
+
   def next_due_label
     return nil if contract.next_due_date.blank?
 
