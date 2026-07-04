@@ -1,21 +1,21 @@
-<div class="@container space-y-8 pb-6 lg:pb-12">
-  <header class="flex items-start justify-between gap-3">
-    <div>
-      <div class="flex items-center gap-2">
-        <h1 class="text-2xl font-semibold text-primary"><%= t(".title") %></h1>
-        <%= render DS::Pill.new(label: t("shared.preview"), size: :md) %>
-      </div>
-      <p class="text-sm text-secondary mt-1"><%= t(".subtitle") %></p>
+<div class="@container space-y-6 pb-6 lg:pb-12">
+  <header>
+    <div class="flex items-center gap-2">
+      <h1 class="text-2xl font-semibold text-primary"><%= t(".title") %></h1>
+      <%= render DS::Pill.new(label: t("shared.preview"), size: :md) %>
     </div>
-
-    <div class="flex items-center gap-2 shrink-0">
-      <% if @overview[:total_count].positive? %>
-        <%= render DS::Button.new(text: t(".enrich"), href: enrich_contracts_path, method: :post, variant: :outline, icon: "sparkles") %>
-      <% end %>
-      <%= render DS::Button.new(text: t(".scan"), href: scan_contracts_path, method: :post, variant: :outline, icon: "refresh-cw") %>
-      <%= render DS::Link.new(text: t(".new_contract"), variant: "primary", href: new_contract_path, icon: "plus") %>
-    </div>
+    <p class="text-sm text-secondary mt-1"><%= t(".subtitle") %></p>
   </header>
+
+  <%# Actions in their own wrapping row (not crammed next to the title) so they
+      never overflow the viewport on mobile — mirrors the Goals index. %>
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <% if @overview[:total_count].positive? %>
+      <%= render DS::Button.new(text: t(".enrich"), href: enrich_contracts_path, method: :post, variant: :outline, icon: "sparkles") %>
+    <% end %>
+    <%= render DS::Button.new(text: t(".scan"), href: scan_contracts_path, method: :post, variant: :outline, icon: "refresh-cw") %>
+    <%= render DS::Link.new(text: t(".new_contract"), variant: "primary", href: new_contract_path, icon: "plus") %>
+  </div>
 
   <% if @overview[:total_count].zero? %>
     <%= render "empty_state" %>
