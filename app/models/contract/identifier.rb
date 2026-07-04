@@ -211,17 +211,16 @@ class Contract
       # and benefits; transfer kinds drop internal moves.
       def charges
         @charges ||= begin
-          merchant_names = family.merchants.pluck(:id, :name).to_h
-
           family.entries
                 .joins("INNER JOIN transactions ON transactions.id = entries.entryable_id AND entries.entryable_type = 'Transaction'")
+                .joins("LEFT JOIN merchants ON merchants.id = transactions.merchant_id")
                 .where(entryable_type: "Transaction")
                 .where("entries.date >= ?", LOOKBACK_MONTHS.months.ago.to_date)
                 .where("entries.amount > 0")
                 .where.not("transactions.kind": Transaction::TRANSFER_KINDS)
-                .pluck("transactions.merchant_id", "entries.name", "entries.amount", "entries.currency", "entries.account_id", "entries.date")
-                .filter_map do |merchant_id, name, amount, currency, account_id, date|
-                  display_name = merchant_id ? merchant_names[merchant_id] : name
+                .pluck("transactions.merchant_id", "merchants.name", "entries.name", "entries.amount", "entries.currency", "entries.account_id", "entries.date")
+                .filter_map do |merchant_id, merchant_name, name, amount, currency, account_id, date|
+                  display_name = merchant_id ? merchant_name : name
                   vendor = canonicalize(display_name)
                   next if vendor.blank?
 
