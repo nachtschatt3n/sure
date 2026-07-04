@@ -24,6 +24,15 @@ class Contracts::CardComponentTest < ViewComponent::TestCase
     assert_text(/Next/i)
   end
 
+  test "renders the category badge with its name" do
+    contract = contracts(:netflix_monthly)
+    contract.update!(category: categories(:food_and_drink))
+
+    render_inline(Contracts::CardComponent.new(contract: contract))
+
+    assert_text categories(:food_and_drink).name
+  end
+
   test "warns when a detected price increase is present" do
     contract = contracts(:netflix_monthly)
     contract.update!(previous_amount: 12.99, expected_amount: 15.99)

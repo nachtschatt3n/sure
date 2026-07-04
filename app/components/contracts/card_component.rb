@@ -9,10 +9,6 @@ class Contracts::CardComponent < ApplicationComponent
     contract.expected_amount_money.format
   end
 
-  def category_label
-    contract.category&.name
-  end
-
   def description
     contract.description.presence
   end
