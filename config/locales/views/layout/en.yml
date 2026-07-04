@@ -9,6 +9,7 @@ en:
       nav:
         assistant: Assistant
         budgets: Budgets
+        contracts: Contracts
         home: Home
         reports: Reports
         goals: Goals

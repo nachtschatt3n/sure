@@ -336,6 +336,12 @@ Rails.application.routes.draw do
     end
   end
 
+  resources :contracts, only: %i[index new create edit update destroy] do
+    collection do
+      post :scan
+    end
+  end
+
   resources :family_merchants, only: %i[index new create edit update destroy] do
     collection do
       get :merge
