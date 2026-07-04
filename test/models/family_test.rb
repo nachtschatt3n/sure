@@ -352,6 +352,38 @@ class FamilyTest < ActiveSupport::TestCase
     assert_not_includes Family.with_preview_features, family
   end
 
+  test "contracts_overview clusters active contracts by frequency with per-cluster totals" do
+    overview = families(:dylan_family).contracts_overview
+
+    assert_equal 3, overview[:total_count]
+    frequencies = overview[:clusters].map { |c| c[:frequency] }
+    assert_equal %w[monthly quarterly annual], frequencies
+
+    quarterly = overview[:clusters].find { |c| c[:frequency] == "quarterly" }
+    assert_equal 1, quarterly[:count]
+    assert_equal BigDecimal("90"), quarterly[:total_amount].amount
+    assert_equal BigDecimal("30"), quarterly[:monthly_normalized].amount
+  end
+
+  test "contracts_overview monthly_normalized_total sums every active contract's per-month cost" do
+    # 15.99 (monthly) + 30 (quarterly 90/3) + 10 (annual 120/12) = 55.99
+    overview = families(:dylan_family).contracts_overview
+
+    assert_equal BigDecimal("55.99"), overview[:monthly_normalized_total].amount
+  end
+
+  test "contracts_overview excludes paused, cancelled and foreign-currency contracts" do
+    family = families(:dylan_family)
+    contracts(:gym_quarterly).update!(status: :paused)
+    contracts(:domain_annual).update!(currency: "EUR")
+
+    overview = family.contracts_overview
+
+    assert_equal 1, overview[:total_count]
+    assert_equal %w[monthly], overview[:clusters].map { |c| c[:frequency] }
+    assert_equal BigDecimal("15.99"), overview[:monthly_normalized_total].amount
+  end
+
   private
     def set_preview_features(user, enabled)
       user.update!(preferences: (user.preferences || {}).merge("preview_features_enabled" => enabled))
