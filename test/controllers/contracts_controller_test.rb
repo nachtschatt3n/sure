@@ -30,6 +30,18 @@ class ContractsControllerTest < ActionDispatch::IntegrationTest
     assert_response :success
   end
 
+  test "index filters by status" do
+    contracts(:gym_quarterly).update!(status: :cancelled)
+
+    get contracts_url(status: "cancelled")
+    assert_response :success
+    assert_match(contracts(:gym_quarterly).name, response.body)
+
+    get contracts_url # active default
+    assert_response :success
+    assert_no_match(/Gym membership/, response.body)
+  end
+
   test "create persists a contract and redirects" do
     assert_difference "@user.family.contracts.count", 1 do
       post contracts_url, params: {

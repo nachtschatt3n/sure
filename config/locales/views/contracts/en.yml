@@ -7,6 +7,13 @@ en:
       new_contract: New contract
       scan: Scan
       enrich: Enrich with AI
+      filter:
+        active: Active
+        paused: Paused
+        cancelled: Cancelled
+        all: All
+        aria: Filter contracts by status
+        empty: No contracts in this view.
     frequencies:
       weekly: Weekly
       monthly: Monthly

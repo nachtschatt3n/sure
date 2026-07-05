@@ -2,8 +2,12 @@ class ContractsController < ApplicationController
   before_action :require_preview_features!
   before_action :set_contract, only: %i[edit update destroy]
 
+  STATUS_FILTERS = %w[active paused cancelled all].freeze
+
   def index
-    @overview = Current.family.contracts_overview
+    @status = STATUS_FILTERS.include?(params[:status]) ? params[:status] : "active"
+    statuses = @status == "all" ? %w[active paused cancelled] : [ @status ]
+    @overview = Current.family.contracts_overview(statuses: statuses)
     @breadcrumbs = [
       [ t("breadcrumbs.home"), root_path ],
       [ t("contracts.index.title"), nil ]
