@@ -32,12 +32,16 @@
   </div>
 
   <div class="grid grid-cols-2 gap-3 items-start">
-    <%= f.number_field :custom_interval_months,
-                       label: t("contracts.form.fields.custom_interval_months"),
-                       min: 1 %>
-    <%= f.number_field :expected_day,
-                       label: t("contracts.form.fields.expected_day"),
-                       min: 1, max: 31 %>
+    <%= f.select :expected_day,
+                 options_for_select((1..31).map { |d| [ d, d ] }, contract.expected_day),
+                 { label: t("contracts.form.fields.expected_day"),
+                   label_tooltip: t("contracts.form.fields.expected_day_hint"),
+                   include_blank: t("contracts.form.fields.any_day") } %>
+    <%= f.select :custom_interval_months,
+                 options_for_select([ 2, 3, 4, 6, 12, 18, 24 ].map { |m| [ t("contracts.form.fields.every_n_months", count: m), m ] }, contract.custom_interval_months),
+                 { label: t("contracts.form.fields.custom_interval_months"),
+                   label_tooltip: t("contracts.form.fields.custom_interval_hint"),
+                   include_blank: t("contracts.form.fields.not_custom") } %>
   </div>
 
   <div class="grid grid-cols-2 gap-3 items-start">
@@ -54,8 +58,14 @@
                             { label: t("contracts.form.fields.account"), include_blank: t("contracts.form.fields.none") } %>
   </div>
 
+  <%# Provider = the merchant behind the contract. Include the current merchant
+      even when it's a global (provider) merchant not in the family list, so it
+      shows as selected instead of blank. %>
+  <% merchant_options = Current.family.merchants.order(:name).to_a %>
+  <% merchant_options = ([ contract.merchant ] + merchant_options).uniq if contract.merchant.present? && merchant_options.exclude?(contract.merchant) %>
   <div class="grid grid-cols-2 gap-3 items-start">
-    <%= f.text_field :provider, label: t("contracts.form.fields.provider") %>
+    <%= f.collection_select :merchant_id, merchant_options, :id, :name,
+                            { label: t("contracts.form.fields.merchant"), include_blank: t("contracts.form.fields.none") } %>
     <%= f.collection_select :linked_account_id, Current.family.accounts.visible.order(:name), :id, :name,
                             { label: t("contracts.form.fields.linked_account"), include_blank: t("contracts.form.fields.none") } %>
   </div>
