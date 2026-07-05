@@ -2,6 +2,28 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## Fork development & deployment workflow (fork-only — keep out of upstream PRs)
+
+This is the `nachtschatt3n/sure` fork of `we-promise/sure`. Two long-lived branches:
+
+- **`feat/contracts-preview`** — the *contract feature branch*. Single source of truth for the
+  Contracts feature and the branch the upstream PR is cut from. **Every Contracts change lands
+  here first.**
+- **`feat/contracts-trading212`** — the *deploy branch*: contracts + the Trading 212 integration
+  (upstream PR #2513). This is what gets built into the deployed image and merged into `main`.
+
+**Rule: feature changes go to the feature branch, then are merged into the deploy branch — never
+commit a Contracts change directly to the deploy branch.** Flow:
+
+1. Edit + commit on `feat/contracts-preview`.
+2. `git merge --no-ff feat/contracts-preview` into `feat/contracts-trading212`.
+3. Build the image from the deploy branch (`publish.yml` → `ghcr.io/nachtschatt3n/sure:sha-<sha>`),
+   deploy via GitOps (cberg `helmrelease.yaml` image tag, delegated to the cberg-agent), then
+   merge the deploy branch into `main`.
+
+Fork-only meta (this section, dev notes) lives on the deploy branch / `main`, **never** on
+`feat/contracts-preview`, so the upstream PR stays clean.
+
 ## Common Development Commands
 
 ### Development Server

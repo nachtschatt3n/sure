@@ -122,17 +122,24 @@ class Family < ApplicationRecord
     users.any?(&:preview_features_enabled?)
   end
 
-  # Active contracts grouped by cadence (weekly … annual/custom) with per-cluster
-  # counts and totals, plus a normalized "Ø / month" recurring-spend rollup.
-  # Scoped to the family's primary currency so mixed-currency contracts aren't
-  # summed into one incomparable figure (foreign-currency contracts are excluded
-  # from the rollup until FX conversion lands, mirroring the goals KPI stance).
-  def contracts_overview
+  # Contracts grouped by cadence (weekly … annual/custom) with per-cluster counts
+  # and totals, plus a normalized "Ø / month" recurring-spend rollup. Scoped to
+  # the family's primary currency so mixed-currency contracts aren't summed into
+  # one incomparable figure (foreign-currency contracts are excluded from the
+  # rollup until FX conversion lands, mirroring the goals KPI stance).
+  #
+  # `statuses` selects which contracts appear in the clusters (default: active
+  # only — paused/cancelled are hidden unless asked for). The KPI headline
+  # (Ø/month + count) always reflects *active* contracts, since that's the real
+  # ongoing spend regardless of what the list is filtered to.
+  def contracts_overview(statuses: %w[active])
     currency = primary_currency_code
-    active = contracts.active.where(currency: currency).alphabetically.to_a
+    in_currency = contracts.where(currency: currency)
+    active = in_currency.active.alphabetically.to_a
+    shown = statuses.sort == %w[active] ? active : in_currency.where(status: statuses).alphabetically.to_a
 
     clusters = Contract.frequencies.keys.filter_map do |frequency|
-      members = active.select { |c| c.frequency == frequency }
+      members = shown.select { |c| c.frequency == frequency }
       next if members.empty?
 
       {
@@ -147,7 +154,9 @@ class Family < ApplicationRecord
     {
       clusters: clusters,
       total_count: active.size,
-      monthly_normalized_total: Money.new(active.sum(&:monthly_normalized_amount), currency)
+      monthly_normalized_total: Money.new(active.sum(&:monthly_normalized_amount), currency),
+      shown_count: shown.size,
+      status_counts: in_currency.group(:status).count
     }
   end
 
