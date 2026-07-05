@@ -255,6 +255,21 @@ class FamilyTest < ActiveSupport::TestCase
     assert_equal BigDecimal("55.99"), overview[:monthly_normalized_total].amount
   end
 
+  test "contracts_overview status filter selects the shown set but keeps active KPIs" do
+    family = families(:dylan_family)
+    contracts(:gym_quarterly).update!(status: :cancelled)
+
+    default = family.contracts_overview
+    assert_equal 2, default[:shown_count] # netflix + domain (active)
+    assert_not_includes default[:clusters].flat_map { |c| c[:contracts] }.map(&:id), contracts(:gym_quarterly).id
+
+    cancelled = family.contracts_overview(statuses: %w[cancelled])
+    assert_equal [ contracts(:gym_quarterly).id ], cancelled[:clusters].flat_map { |c| c[:contracts] }.map(&:id)
+    assert_equal 1, cancelled[:shown_count]
+    assert_equal 2, cancelled[:total_count] # KPI headline still reflects active
+    assert_equal 1, cancelled[:status_counts]["cancelled"]
+  end
+
   test "contracts_overview excludes paused, cancelled and foreign-currency contracts" do
     family = families(:dylan_family)
     contracts(:gym_quarterly).update!(status: :paused)
