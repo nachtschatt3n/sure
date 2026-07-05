@@ -234,4 +234,51 @@ class FamilyTest < ActiveSupport::TestCase
     assert_equal({ "type" => "financial_document" }, document.metadata)
     assert_equal "vs_test123", family.reload.vector_store_id
   end
+
+  test "contracts_overview clusters active contracts by frequency with per-cluster totals" do
+    overview = families(:dylan_family).contracts_overview
+
+    assert_equal 3, overview[:total_count]
+    frequencies = overview[:clusters].map { |c| c[:frequency] }
+    assert_equal %w[monthly quarterly annual], frequencies
+
+    quarterly = overview[:clusters].find { |c| c[:frequency] == "quarterly" }
+    assert_equal 1, quarterly[:count]
+    assert_equal BigDecimal("90"), quarterly[:total_amount].amount
+    assert_equal BigDecimal("30"), quarterly[:monthly_normalized].amount
+  end
+
+  test "contracts_overview monthly_normalized_total sums every active contract's per-month cost" do
+    # 15.99 (monthly) + 30 (quarterly 90/3) + 10 (annual 120/12) = 55.99
+    overview = families(:dylan_family).contracts_overview
+
+    assert_equal BigDecimal("55.99"), overview[:monthly_normalized_total].amount
+  end
+
+  test "contracts_overview status filter selects the shown set but keeps active KPIs" do
+    family = families(:dylan_family)
+    contracts(:gym_quarterly).update!(status: :cancelled)
+
+    default = family.contracts_overview
+    assert_equal 2, default[:shown_count] # netflix + domain (active)
+    assert_not_includes default[:clusters].flat_map { |c| c[:contracts] }.map(&:id), contracts(:gym_quarterly).id
+
+    cancelled = family.contracts_overview(statuses: %w[cancelled])
+    assert_equal [ contracts(:gym_quarterly).id ], cancelled[:clusters].flat_map { |c| c[:contracts] }.map(&:id)
+    assert_equal 1, cancelled[:shown_count]
+    assert_equal 2, cancelled[:total_count] # KPI headline still reflects active
+    assert_equal 1, cancelled[:status_counts]["cancelled"]
+  end
+
+  test "contracts_overview excludes paused, cancelled and foreign-currency contracts" do
+    family = families(:dylan_family)
+    contracts(:gym_quarterly).update!(status: :paused)
+    contracts(:domain_annual).update!(currency: "EUR")
+
+    overview = family.contracts_overview
+
+    assert_equal 1, overview[:total_count]
+    assert_equal %w[monthly], overview[:clusters].map { |c| c[:frequency] }
+    assert_equal BigDecimal("15.99"), overview[:monthly_normalized_total].amount
+  end
 end

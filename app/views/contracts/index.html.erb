@@ -1,0 +1,45 @@
+<div class="@container space-y-6 pb-6 lg:pb-12">
+  <% total_all = @overview[:status_counts].values.sum %>
+  <% non_active = @overview[:status_counts]["paused"].to_i + @overview[:status_counts]["cancelled"].to_i %>
+
+  <header>
+    <div class="flex items-center gap-2">
+      <h1 class="text-2xl font-semibold text-primary"><%= t(".title") %></h1>
+      <%= render DS::Pill.new(label: t("shared.preview"), size: :md) %>
+    </div>
+    <p class="text-sm text-secondary mt-1"><%= t(".subtitle") %></p>
+  </header>
+
+  <%# Actions in their own wrapping row (not crammed next to the title) so they
+      never overflow the viewport on mobile — mirrors the Goals index. %>
+  <div class="flex flex-wrap items-center justify-end gap-2">
+    <% if total_all.positive? %>
+      <%= render DS::Button.new(text: t(".enrich"), href: enrich_contracts_path, method: :post, variant: :outline, icon: "sparkles") %>
+    <% end %>
+    <%= render DS::Button.new(text: t(".scan"), href: scan_contracts_path, method: :post, variant: :outline, icon: "refresh-cw") %>
+    <%= render DS::Link.new(text: t(".new_contract"), variant: "primary", href: new_contract_path, icon: "plus") %>
+  </div>
+
+  <% if total_all.zero? %>
+    <%= render "empty_state" %>
+  <% else %>
+    <%# Status filter — only surfaced once there are paused/cancelled contracts
+        to reveal. Scrolls horizontally on narrow (mobile) viewports. %>
+    <% if non_active.positive? %>
+      <%= render DS::SegmentedControl.new(aria_label: t(".filter.aria"), class: "overflow-x-auto max-w-full") do |sc| %>
+        <% %w[active paused cancelled all].each do |st| %>
+          <% count = st == "all" ? total_all : @overview[:status_counts][st].to_i %>
+          <% sc.with_segment("#{t(".filter.#{st}")} (#{count})", href: contracts_path(status: st), active: @status == st) %>
+        <% end %>
+      <% end %>
+    <% end %>
+
+    <% if @overview[:shown_count].zero? %>
+      <div class="bg-container rounded-xl shadow-border-xs py-10 text-center">
+        <p class="text-sm text-secondary"><%= t(".filter.empty") %></p>
+      </div>
+    <% else %>
+      <%= render Contracts::OverviewComponent.new(overview: @overview) %>
+    <% end %>
+  <% end %>
+</div>

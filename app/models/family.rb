@@ -112,6 +112,52 @@ class Family < ApplicationRecord
 
   has_many :llm_usages, dependent: :destroy
   has_many :recurring_transactions, dependent: :destroy
+  has_many :contracts, dependent: :destroy
+
+  # True when any member of the family has opted into preview features. Used to
+  # gate preview-only background work (contract detection) so no data is seeded
+  # for families that haven't opted in — the per-request UI gate lives on User.
+  def preview_features_enabled?
+    users.any?(&:preview_features_enabled?)
+  end
+
+  # Contracts grouped by cadence (weekly … annual/custom) with per-cluster counts
+  # and totals, plus a normalized "Ø / month" recurring-spend rollup. Scoped to
+  # the family's primary currency so mixed-currency contracts aren't summed into
+  # one incomparable figure (foreign-currency contracts are excluded from the
+  # rollup until FX conversion lands, mirroring the goals KPI stance).
+  #
+  # `statuses` selects which contracts appear in the clusters (default: active
+  # only — paused/cancelled are hidden unless asked for). The KPI headline
+  # (Ø/month + count) always reflects *active* contracts, since that's the real
+  # ongoing spend regardless of what the list is filtered to.
+  def contracts_overview(statuses: %w[active])
+    currency = primary_currency_code
+    in_currency = contracts.where(currency: currency)
+    active = in_currency.active.alphabetically.to_a
+    shown = statuses.sort == %w[active] ? active : in_currency.where(status: statuses).alphabetically.to_a
+
+    clusters = Contract.frequencies.keys.filter_map do |frequency|
+      members = shown.select { |c| c.frequency == frequency }
+      next if members.empty?
+
+      {
+        frequency: frequency,
+        count: members.size,
+        total_amount: Money.new(members.sum { |c| c.expected_amount.to_d }, currency),
+        monthly_normalized: Money.new(members.sum(&:monthly_normalized_amount), currency),
+        contracts: members
+      }
+    end
+
+    {
+      clusters: clusters,
+      total_count: active.size,
+      monthly_normalized_total: Money.new(active.sum(&:monthly_normalized_amount), currency),
+      shown_count: shown.size,
+      status_counts: in_currency.group(:status).count
+    }
+  end
 
   validates :locale, inclusion: { in: I18n.available_locales.map(&:to_s) }
   validates :date_format, inclusion: { in: DATE_FORMATS.map(&:last) }

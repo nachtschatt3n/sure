@@ -49,6 +49,29 @@
     {
       "warning_type": "Mass Assignment",
       "warning_code": 105,
+      "fingerprint": "542900a936cfae37b3426dabb0e80a9ff49c7ea258a678d0d5dbbe89e7f1fb27",
+      "check_name": "PermitAttributes",
+      "message": "Potentially dangerous key allowed for mass assignment",
+      "file": "app/controllers/contracts_controller.rb",
+      "line": 63,
+      "link": "https://brakemanscanner.org/docs/warning_types/mass_assignment/",
+      "code": "params.require(:contract).permit(:name, :merchant_id, :category_id, :account_id, :linked_account_id, :frequency, :custom_interval_months, :expected_amount, :currency, :expected_day, :next_due_date, :status, :provider, :cancellation_notice_days, :notes, :description)",
+      "render_path": null,
+      "location": {
+        "type": "method",
+        "class": "ContractsController",
+        "method": "contract_params"
+      },
+      "user_input": ":merchant_id",
+      "confidence": "High",
+      "cwe_id": [
+        915
+      ],
+      "note": "account_id/linked_account_id/category_id/merchant_id are family-scoped by Contract#linked_records_belong_to_family (app/models/contract.rb), which rejects any linked record whose family_id differs from the contract's; status is a validated string enum (active/paused/cancelled)"
+    },
+    {
+      "warning_type": "Mass Assignment",
+      "warning_code": 105,
       "fingerprint": "81c63f2c375da309440b9308df3ae9d1fcbada7043a26919898b08f3a38b29f6",
       "check_name": "PermitAttributes",
       "message": "Potentially dangerous key allowed for mass assignment",

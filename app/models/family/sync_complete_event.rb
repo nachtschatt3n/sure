@@ -27,5 +27,13 @@ class Family::SyncCompleteEvent
     rescue => e
       Rails.logger.error("Family::SyncCompleteEvent recurring transaction identification failed: #{e.message}\n#{e.backtrace&.join("\n")}")
     end
+
+    # Seed detected contract candidates (preview feature). Gated on the family
+    # having a member opted into preview so non-preview families accrue no data.
+    begin
+      IdentifyContractsJob.perform_later(family.id) if family.preview_features_enabled?
+    rescue => e
+      Rails.logger.error("Family::SyncCompleteEvent contract identification failed: #{e.message}\n#{e.backtrace&.join("\n")}")
+    end
   end
 end

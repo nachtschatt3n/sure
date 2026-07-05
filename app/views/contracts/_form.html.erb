@@ -1,0 +1,80 @@
+<%# locals: (contract:) %>
+<%= styled_form_with model: contract,
+                     url: contract.persisted? ? contract_path(contract) : contracts_path,
+                     method: contract.persisted? ? :patch : :post,
+                     class: "space-y-5" do |f| %>
+  <% if contract.errors.any? %>
+    <div class="rounded-lg bg-container-inset px-4 py-3 text-sm text-destructive">
+      <ul class="list-disc list-inside space-y-1">
+        <% contract.errors.full_messages.each do |message| %>
+          <li><%= message %></li>
+        <% end %>
+      </ul>
+    </div>
+  <% end %>
+
+  <%= f.hidden_field :currency %>
+
+  <%= f.text_field :name,
+                   label: t("contracts.form.fields.name"),
+                   placeholder: t("contracts.form.fields.name_placeholder"),
+                   required: true,
+                   autofocus: true %>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.money_field :expected_amount,
+                      label: t("contracts.form.fields.expected_amount"),
+                      hide_currency: true,
+                      required: true %>
+    <%= f.select :frequency,
+                 options_for_select(Contract.frequencies.keys.map { |k| [ t("contracts.frequencies.#{k}"), k ] }, contract.frequency),
+                 { label: t("contracts.form.fields.frequency") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.select :expected_day,
+                 options_for_select((1..31).map { |d| [ d, d ] }, contract.expected_day),
+                 { label: t("contracts.form.fields.expected_day"),
+                   label_tooltip: t("contracts.form.fields.expected_day_hint"),
+                   include_blank: t("contracts.form.fields.any_day") } %>
+    <%= f.select :custom_interval_months,
+                 options_for_select([ 2, 3, 4, 6, 12, 18, 24 ].map { |m| [ t("contracts.form.fields.every_n_months", count: m), m ] }, contract.custom_interval_months),
+                 { label: t("contracts.form.fields.custom_interval_months"),
+                   label_tooltip: t("contracts.form.fields.custom_interval_hint"),
+                   include_blank: t("contracts.form.fields.not_custom") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.date_field :next_due_date, label: t("contracts.form.fields.next_due_date") %>
+    <%= f.select :status,
+                 options_for_select(Contract.statuses.keys.map { |k| [ t("contracts.statuses.#{k}"), k ] }, contract.status),
+                 { label: t("contracts.form.fields.status") } %>
+  </div>
+
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.collection_select :category_id, Current.family.categories.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.category"), include_blank: t("contracts.form.fields.none") } %>
+    <%= f.collection_select :account_id, Current.family.accounts.visible.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.account"), include_blank: t("contracts.form.fields.none") } %>
+  </div>
+
+  <%# Provider = the merchant behind the contract. Include the current merchant
+      even when it's a global (provider) merchant not in the family list, so it
+      shows as selected instead of blank. %>
+  <% merchant_options = Current.family.merchants.order(:name).to_a %>
+  <% merchant_options = ([ contract.merchant ] + merchant_options).uniq if contract.merchant.present? && merchant_options.exclude?(contract.merchant) %>
+  <div class="grid grid-cols-2 gap-3 items-start">
+    <%= f.collection_select :merchant_id, merchant_options, :id, :name,
+                            { label: t("contracts.form.fields.merchant"), include_blank: t("contracts.form.fields.none") } %>
+    <%= f.collection_select :linked_account_id, Current.family.accounts.visible.order(:name), :id, :name,
+                            { label: t("contracts.form.fields.linked_account"), include_blank: t("contracts.form.fields.none") } %>
+  </div>
+
+  <%= f.text_area :description, label: t("contracts.form.fields.description"),
+                  placeholder: t("contracts.form.fields.description_placeholder"), rows: 2 %>
+
+  <div class="flex items-center justify-end gap-2 pt-2">
+    <%= render DS::Link.new(text: t("contracts.form.cancel"), variant: "outline", href: contracts_path) %>
+    <%= f.submit contract.persisted? ? t("contracts.form.update") : t("contracts.form.create") %>
+  </div>
+<% end %>

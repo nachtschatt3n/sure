@@ -1,0 +1,37 @@
+<%= link_to edit_contract_path(contract),
+      class: "block bg-container rounded-xl shadow-border-xs p-4 hover:shadow-border-sm transition-shadow" do %>
+  <div class="flex items-start justify-between gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <span class="text-secondary shrink-0"><%= helpers.icon("file-text") %></span>
+      <p class="text-sm font-medium text-primary truncate"><%= contract.name %></p>
+    </div>
+    <p class="text-sm font-medium text-primary tabular-nums shrink-0 privacy-sensitive"><%= amount_label %></p>
+  </div>
+
+  <% if description.present? %>
+    <p class="mt-1 text-xs text-secondary line-clamp-2"><%= description %></p>
+  <% end %>
+
+  <% if linked_account_label.present? %>
+    <p class="mt-2 flex items-center gap-1 text-xs text-secondary">
+      <%= helpers.icon("link", size: "sm") %><%= linked_account_label %>
+    </p>
+  <% end %>
+
+  <div class="mt-3 flex items-center justify-between gap-2">
+    <div class="flex items-center gap-2 min-w-0">
+      <% if contract.category.present? %>
+        <%= render "categories/badge", category: contract.category %>
+      <% end %>
+      <% if overdue? %>
+        <%= render DS::Pill.new(label: overdue_label, tone: :warning, marker: false) %>
+      <% end %>
+      <% if price_increased? %>
+        <%= render DS::Pill.new(label: price_increase_label, tone: :amber, marker: false, icon: "trending-up") %>
+      <% end %>
+    </div>
+    <% if next_due_label.present? && !overdue? %>
+      <p class="text-xs text-secondary shrink-0"><%= t("contracts.card.next_due", date: next_due_label) %></p>
+    <% end %>
+  </div>
+<% end %>

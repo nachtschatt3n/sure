@@ -1,0 +1,27 @@
+---
+en:
+  activerecord:
+    attributes:
+      contract:
+        name: Name
+        merchant: Merchant
+        category: Category
+        account: Account
+        linked_account: Linked account
+        description: Description
+        frequency: Frequency
+        custom_interval_months: Custom interval (months)
+        expected_amount: Expected amount
+        currency: Currency
+        expected_day: Expected day
+        next_due_date: Next due date
+        status: Status
+        provider: Provider
+        cancellation_notice_days: Cancellation notice (days)
+        notes: Notes
+    errors:
+      models:
+        contract:
+          attributes:
+            custom_interval_months:
+              required_for_custom: Set how many months apart a custom contract recurs.
