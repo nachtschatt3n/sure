@@ -52,11 +52,17 @@ en:
         name_placeholder: e.g. Netflix, car insurance, gym
         expected_amount: Amount
         frequency: Billing frequency
-        custom_interval_months: Custom interval (months)
+        custom_interval_months: Custom interval
+        custom_interval_hint: Only used when the billing frequency is set to Custom.
+        every_n_months: Every %{count} months
+        not_custom: Only for “Custom”
         expected_day: Day of month
+        expected_day_hint: The day of the month the charge usually lands.
+        any_day: Any day
         next_due_date: Next due date
         status: Status
         category: Category
+        merchant: Merchant
         account: Account
         linked_account: Linked account (loan / investment)
         provider: Provider
