@@ -5,10 +5,10 @@ export default class extends Controller {
   static values = {
     // How long a pending "Thinking…" bubble may wait before we assume the
     // background worker never delivered a response. Generous so slow models or
-    // tool calls don't trip it — a large local model (e.g. gemma 26b) doing a
-    // multi-round tool call on a big transaction set can take ~90-150s, so this
-    // is set well above the backend OPENAI_REQUEST_TIMEOUT budget.
-    responseTimeout: { type: Number, default: 300000 },
+    // tool calls don't trip it. Set from the server (`Chat.response_timeout_ms`)
+    // so self-hosters running local models can raise it; this default only
+    // applies if the value is missing from the markup.
+    responseTimeout: { type: Number, default: 90000 },
     // How often to re-check pending bubbles.
     pollInterval: { type: Number, default: 5000 },
   };

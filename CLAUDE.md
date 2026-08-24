@@ -4,25 +4,58 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Fork development & deployment workflow (fork-only — keep out of upstream PRs)
 
-This is the `nachtschatt3n/sure` fork of `we-promise/sure`. Two long-lived branches:
+This is the `nachtschatt3n/sure` fork of `we-promise/sure`.
 
-- **`feat/contracts-preview`** — the *contract feature branch*. Single source of truth for the
-  Contracts feature and the branch the upstream PR is cut from. **Every Contracts change lands
-  here first.**
-- **`feat/contracts-trading212`** — the *deploy branch*: contracts + the Trading 212 integration
-  (upstream PR #2513). This is what gets built into the deployed image and merged into `main`.
+### Branch roles
 
-**Rule: feature changes go to the feature branch, then are merged into the deploy branch — never
-commit a Contracts change directly to the deploy branch.** Flow:
+**One branch integrates; many branches contribute.** A branch can be the canonical statement of
+what the fork *is*, or a unit of upstream review — never both.
+
+- **`integration`** (renamed from `feat/contracts-trading212` on 2026-08-24) — the *integration &
+  deploy branch*. Merges every topic branch plus fork-only meta (this section, dev notes). This is
+  what gets built into the deployed image and merged into `main`. **Never PR'd upstream as a
+  whole.**
+- **Topic branches** — each cut fresh from `upstream/main`, single concern, independently
+  PR-able upstream. `feat/contracts-preview` (Contracts feature, kept clean of fork meta),
+  `pr2513` (Trading 212, upstream PR #2513), and new work such as `feat/llm-extra-params`.
+
+**Rule: topic branches never merge into each other.** They meet only on `integration`. Nearly
+every accidental mega-branch is built one reasonable-looking cross-merge at a time. Historically
+`feat/contracts-preview` → `feat/loan-contract-term` → `feat/loan-rate-lock-expiry` →
+`feat/contracts-trading212` formed exactly such a stack, and nothing in it ever reached upstream;
+`pr2513`, the only genuinely standalone branch, is the only one that did.
+
+Flow for a Contracts change:
 
 1. Edit + commit on `feat/contracts-preview`.
-2. `git merge --no-ff feat/contracts-preview` into `feat/contracts-trading212`.
-3. Build the image from the deploy branch (`publish.yml` → `ghcr.io/nachtschatt3n/sure:sha-<sha>`),
+2. `git merge --no-ff feat/contracts-preview` into `integration`.
+3. Build the image from `integration` (`publish.yml` → `ghcr.io/nachtschatt3n/sure:sha-<sha>`),
    deploy via GitOps (cberg `helmrelease.yaml` image tag, delegated to the cberg-agent), then
-   merge the deploy branch into `main`.
+   merge `integration` into `main`.
 
-Fork-only meta (this section, dev notes) lives on the deploy branch / `main`, **never** on
+Fork-only meta (this section, dev notes) lives on `integration` / `main`, **never** on
 `feat/contracts-preview`, so the upstream PR stays clean.
+
+### Known fork divergences (expect these to conflict on every upstream sync)
+
+- **Contracts nav entry** — `app/views/layouts/application.html.erb`. Contracts is deliberately a
+  **top-level** nav item and is *not* folded into upstream's `plan_nav_item` "Plan" hub (which
+  upstream introduced in the 2026-08 sync, absorbing budgets and goals). Upstream actively
+  restructures this list, so this line conflicts often. **Resolution: take upstream's
+  `plan_nav_item`, then re-add our `preview_gated_nav_item(... contracts_path ...)` after it.**
+  Guarded by `test/integration/contracts_nav_test.rb` — that test fails loudly if the entry is
+  dropped, which is the only thing standing between a routine sync and a fully intact but
+  completely unreachable Contracts feature.
+
+### Retired fork patches (do not reintroduce)
+
+- **Insights chat watchdog** (`app/javascript/controllers/chat_controller.js`). The fork used to
+  hardcode `responseTimeout: 300000`. Upstream implemented this properly — the value is now
+  server-driven via `Chat.response_timeout_ms`, with precedence
+  `ENV["AI_RESPONSE_TIMEOUT"] > Setting.ai_response_timeout > default`. The fork patch was deleted
+  in the 2026-08-24 sync. **The behaviour now depends on `AI_RESPONSE_TIMEOUT=300` being set in the
+  cberg `helmrelease.yaml`** — without it the timeout silently falls back to 90s and the
+  "assistant did not reply" bug returns on the slow local model.
 
 ## Deploy log
 

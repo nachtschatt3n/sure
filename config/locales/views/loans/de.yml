@@ -15,6 +15,12 @@ de:
       contract_term_tooltip: Die im Darlehensvertrag angegebene Laufzeit. Kann von der oben berechneten Tilgungslaufzeit abweichen, wenn dem Beginn der regelmäßigen Raten eine Bereitstellungs- oder tilgungsfreie Zeit vorausging.
       rate_lock_expires_on: Zinsbindung
       rate_lock_expires_on_tooltip: Das Datum, an dem diese Zinsbindung endet. Danach muss das Darlehen in der Regel prolongiert oder zu einem neuen Zinssatz umgeschuldet werden.
+      rate_type_adjustable: Anpassbar
+      rate_type_fixed: Fest
+      rate_type_variable: Variabel
+      none: Keine
+      subtype_none: Keine
+      subtype_prompt: Kreditart wählen
     new:
       title: Kreditdetails eingeben
     overview:
@@ -31,3 +37,12 @@ de:
         contract_term: Vertragslaufzeit
         rate_lock_expires_on: Zinsbindung
         rate_lock_expiring_soon: Läuft bald ab
+        edit_loan_details: Kreditdaten bearbeiten
+        interest_rate: Zinssatz
+        monthly_payment: Monatsrate
+        not_applicable: "–"
+        original_principal: Ursprüngliche Kreditsumme
+        remaining_principal: Restschuld
+        term: Laufzeit
+        type: Art
+        unknown: Unbekannt
