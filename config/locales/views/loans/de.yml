@@ -10,6 +10,9 @@ de:
       rate_type: Zinssatztyp
       term_months: Laufzeit (Monate)
       term_months_placeholder: '360'
+      contract_term: Vertragslaufzeit
+      contract_term_placeholder: z. B. 25 Jahre
+      contract_term_tooltip: Die im Darlehensvertrag angegebene Laufzeit. Kann von der oben berechneten Tilgungslaufzeit abweichen, wenn dem Beginn der regelmäßigen Raten eine Bereitstellungs- oder tilgungsfreie Zeit vorausging.
     new:
       title: Kreditdetails eingeben
     overview:
@@ -21,3 +24,6 @@ de:
       term: Laufzeit
       type: Typ
       unknown: Unbekannt
+    tabs:
+      overview:
+        contract_term: Vertragslaufzeit
