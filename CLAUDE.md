@@ -24,6 +24,22 @@ commit a Contracts change directly to the deploy branch.** Flow:
 Fork-only meta (this section, dev notes) lives on the deploy branch / `main`, **never** on
 `feat/contracts-preview`, so the upstream PR stays clean.
 
+## Deploy log
+
+Running record of what shipped in each deployed image, so future sessions don't have to
+reconstruct it from git log. Add an entry here whenever `helmrelease.yaml`'s image tag is bumped.
+
+| Date | Image tag | What shipped | Notes |
+|---|---|---|---|
+| 2026-08-24 | `sha-8588d365c4723c12c4b39e807499f67983a8c063` | Added `contract_term` field to `Loan` (free-text display of the contract's literal stated term, separate from `term_months`) | |
+| 2026-08-24 | `sha-b1d513ed277c61028bdb7c8ca48b939ce3e5edca` | Added `rate_lock_expires_on` field to `Loan` (Zinsbindung date + `rate_lock_expiring_soon?` warning) | **Never actually deployed correctly** — `publish.yml`'s `workflow_dispatch` `ref` input defaulted to `'main'`, so this tag's image was silently built from stale `main`, missing this migration (and `contract_term`'s too). Caught via live-pod filesystem inspection before real impact; rolled back to the prior tag. See fix below. |
+| 2026-08-24 | `sha-ff195b0315335006b8c890e98654fb6bdc18699c` | Same `rate_lock_expires_on` field, correctly built this time, plus the `publish.yml` fix itself (`ref` input default changed from `'main'` to `''` so unset dispatches fall through to `github.ref`) | Verified via a pre-deploy throwaway debug pod exec, confirming both migrations and their app code were actually present in the image *before* touching the live HelmRelease — do this for every future deploy, don't trust a matching tag name or green CI alone. |
+
+**Standing practice since the incident above**: always pass `-f ref=<branch>` explicitly on every
+`publish.yml` dispatch even though the default is now fixed, and verify a freshly-built image's
+actual file contents (via a throwaway debug pod/job) before bumping the live `helmrelease.yaml`
+tag.
+
 ## Common Development Commands
 
 ### Development Server
