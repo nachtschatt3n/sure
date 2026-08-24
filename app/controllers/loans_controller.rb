@@ -2,6 +2,7 @@ class LoansController < ApplicationController
   include AccountableResource
 
   permitted_accountable_attributes(
-    :id, :subtype, :rate_type, :interest_rate, :term_months, :initial_balance, :contract_term
+    :id, :subtype, :rate_type, :interest_rate, :term_months, :initial_balance, :contract_term,
+    :rate_lock_expires_on
   )
 end

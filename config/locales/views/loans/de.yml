@@ -13,6 +13,8 @@ de:
       contract_term: Vertragslaufzeit
       contract_term_placeholder: z. B. 25 Jahre
       contract_term_tooltip: Die im Darlehensvertrag angegebene Laufzeit. Kann von der oben berechneten Tilgungslaufzeit abweichen, wenn dem Beginn der regelmäßigen Raten eine Bereitstellungs- oder tilgungsfreie Zeit vorausging.
+      rate_lock_expires_on: Zinsbindung
+      rate_lock_expires_on_tooltip: Das Datum, an dem diese Zinsbindung endet. Danach muss das Darlehen in der Regel prolongiert oder zu einem neuen Zinssatz umgeschuldet werden.
     new:
       title: Kreditdetails eingeben
     overview:
@@ -27,3 +29,5 @@ de:
     tabs:
       overview:
         contract_term: Vertragslaufzeit
+        rate_lock_expires_on: Zinsbindung
+        rate_lock_expiring_soon: Läuft bald ab

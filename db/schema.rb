@@ -10,7 +10,7 @@
 #
 # It's strongly recommended that you check this file into your version control system.
 
-ActiveRecord::Schema[7.2].define(version: 2026_08_24_000000) do
+ActiveRecord::Schema[7.2].define(version: 2026_08_24_010000) do
   # These are extensions that must be enabled in order to support this database
   enable_extension "pgcrypto"
   enable_extension "plpgsql"
@@ -1315,6 +1315,7 @@ ActiveRecord::Schema[7.2].define(version: 2026_08_24_000000) do
     t.jsonb "locked_attributes", default: {}
     t.string "subtype"
     t.string "contract_term"
+    t.date "rate_lock_expires_on"
   end
 
   create_table "lunchflow_accounts", id: :uuid, default: -> { "gen_random_uuid()" }, force: :cascade do |t|

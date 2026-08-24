@@ -48,6 +48,17 @@
       <%= account.loan.contract_term %>
     <% end %>
   <% end %>
+
+  <% if account.loan.rate_lock_expires_on.present? %>
+    <%= summary_card title: t(".rate_lock_expires_on") do %>
+      <span class="inline-flex items-center gap-2">
+        <%= l(account.loan.rate_lock_expires_on, format: :long) %>
+        <% if account.loan.rate_lock_expiring_soon? %>
+          <%= render DS::Pill.new(label: t(".rate_lock_expiring_soon"), tone: :warning, marker: false) %>
+        <% end %>
+      </span>
+    <% end %>
+  <% end %>
 </div>
 
 <div class="flex justify-center py-8">
