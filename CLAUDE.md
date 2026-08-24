@@ -47,6 +47,24 @@ Fork-only meta (this section, dev notes) lives on `integration` / `main`, **neve
   dropped, which is the only thing standing between a routine sync and a fully intact but
   completely unreachable Contracts feature.
 
+### The Helm chart is upstream's — fork chart edits are INERT
+
+The deployed chart does **not** come from this fork. cberg's HelmRepository
+(`kubernetes/flux/meta/repositories/helm/sure.yaml`) points at the **upstream** index
+(`we-promise.github.io/sure`); only the *image* comes from `ghcr.io/nachtschatt3n/sure`. Chart and
+image are decoupled.
+
+Consequence: **any change under `charts/` in this fork is silently never deployed.** Flux renders
+upstream's chart, the image deploys fine, and whatever depended on the fork's template change is
+simply absent — no error anywhere. If a future change genuinely needs a chart modification, the
+options are an upstream chart PR or repointing the HelmRepository at the fork; editing
+`charts/` here and expecting it to apply is not one of them.
+
+As of the 2026-08-24 sync the fork has **zero** divergence under `charts/` (verified: no commit in
+`upstream/main..integration` touches it), so this is a trap to avoid, not a current problem. Note
+also that the fork's `charts/sure/Chart.yaml` version (0.7.4-alpha.9 after the sync) is meaningless
+for deployment — the cberg helmrelease pins the upstream chart independently, at 0.7.3.
+
 ### Retired fork patches (do not reintroduce)
 
 - **Insights chat watchdog** (`app/javascript/controllers/chat_controller.js`). The fork used to
