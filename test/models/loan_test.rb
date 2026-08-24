@@ -23,4 +23,16 @@ class LoanTest < ActiveSupport::TestCase
 
     assert_equal 2245, loan_account.loan.monthly_payment.amount
   end
+
+  test "rate_lock_expiring_soon? is true only for fixed-rate loans within the warning window" do
+    fixed_soon = Loan.new(rate_type: "fixed", rate_lock_expires_on: 6.months.from_now.to_date)
+    fixed_far = Loan.new(rate_type: "fixed", rate_lock_expires_on: 5.years.from_now.to_date)
+    fixed_none = Loan.new(rate_type: "fixed", rate_lock_expires_on: nil)
+    variable_soon = Loan.new(rate_type: "variable", rate_lock_expires_on: 6.months.from_now.to_date)
+
+    assert fixed_soon.rate_lock_expiring_soon?
+    assert_not fixed_far.rate_lock_expiring_soon?
+    assert_not fixed_none.rate_lock_expiring_soon?
+    assert_not variable_soon.rate_lock_expiring_soon?
+  end
 end

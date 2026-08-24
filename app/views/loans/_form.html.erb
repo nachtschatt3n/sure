@@ -36,6 +36,12 @@
                                  placeholder: t("loans.form.contract_term_placeholder") %>
       </div>
 
+      <div class="flex items-center gap-2">
+        <%= loan_form.date_field :rate_lock_expires_on,
+                                 label: t("loans.form.rate_lock_expires_on"),
+                                 label_tooltip: t("loans.form.rate_lock_expires_on_tooltip") %>
+      </div>
+
       <div>
         <%= loan_form.select :subtype,
                   Loan.subtype_options_for_select,
