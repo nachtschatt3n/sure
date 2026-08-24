@@ -42,6 +42,12 @@
   <%= summary_card title: t(".type") do %>
     <%= account.loan.rate_type&.titleize || t(".unknown") %>
   <% end %>
+
+  <% if account.loan.contract_term.present? %>
+    <%= summary_card title: t(".contract_term") do %>
+      <%= account.loan.contract_term %>
+    <% end %>
+  <% end %>
 </div>
 
 <div class="flex justify-center py-8">

@@ -69,7 +69,8 @@ class LoansControllerTest < ActionDispatch::IntegrationTest
             interest_rate: 4.5,
             term_months: 48,
             rate_type: "fixed",
-            initial_balance: 48000
+            initial_balance: 48000,
+            contract_term: "4 years"
           }
         }
       }
@@ -87,6 +88,7 @@ class LoansControllerTest < ActionDispatch::IntegrationTest
     assert_equal 48, @account.accountable.term_months
     assert_equal "fixed", @account.accountable.rate_type
     assert_equal 48000, @account.accountable.initial_balance
+    assert_equal "4 years", @account.accountable.contract_term
 
     assert_redirected_to @account
     assert_equal "Loan account updated", flash[:notice]
