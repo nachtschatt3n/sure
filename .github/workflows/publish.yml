@@ -17,8 +17,8 @@ on:
       ref:
         description: 'Git ref (tag or commit SHA) to build'
         required: true
-        type: string 
-        default: 'main'
+        type: string
+        default: ''
       push:
         description: 'Push the image to container registry'
         required: false
