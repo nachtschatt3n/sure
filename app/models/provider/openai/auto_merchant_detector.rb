@@ -14,6 +14,17 @@ class Provider::Openai::AutoMerchantDetector
   # Threshold for auto mode: if more than this percentage returns null, retry with none mode
   AUTO_MODE_NULL_THRESHOLD = 0.5
 
+  # Guards against non-JSON-shaped model output being persisted as a merchant
+  # name/URL. Custom/local providers (json_mode "none") aren't schema-constrained,
+  # so a well-formed JSON response can still carry a "business_name" value that is
+  # actually leaked chain-of-thought reasoning text rather than a real business name.
+  # A genuine merchant name/domain never needs to be this long.
+  MAX_MERCHANT_VALUE_LENGTH = 100
+
+  # Placeholder strings some local LLMs emit instead of the JSON null the prompt
+  # asks for. Compared case-insensitively against the trimmed value.
+  PLACEHOLDER_VALUES = %w[null none n/a na unknown nil undefined tbd - --].freeze
+
   attr_reader :client, :model, :transactions, :user_merchants, :custom_provider, :langfuse_trace, :family, :json_mode
 
   def initialize(client, model: "", transactions:, user_merchants:, custom_provider: false, langfuse_trace: nil, family: nil, json_mode: nil)
@@ -281,20 +292,46 @@ class Provider::Openai::AutoMerchantDetector
     end
 
     def normalize_merchant_value(value)
-      return nil if value.nil? || value == "null" || value.to_s.downcase == "null"
+      return nil if value.nil?
+
+      str = value.to_s.strip
+      return nil if str.blank?
+      return nil unless plausible_merchant_value?(str)
 
       # Try to match against user merchants for name normalization
       if user_merchants.present?
         # Try exact match first
-        exact_match = user_merchants.find { |m| m[:name] == value }
+        exact_match = user_merchants.find { |m| m[:name] == str }
         return exact_match[:name] if exact_match
 
         # Try case-insensitive match
-        case_match = user_merchants.find { |m| m[:name].to_s.downcase == value.to_s.downcase }
+        case_match = user_merchants.find { |m| m[:name].to_s.downcase == str.downcase }
         return case_match[:name] if case_match
       end
 
-      value
+      str
+    end
+
+    # A response value is only trusted as a real merchant name/URL when it
+    # looks like one: not a placeholder string, not implausibly long, and not
+    # shaped like prose (multiple sentences) — the telltale sign of a local
+    # model leaking its reasoning into a field the JSON schema couldn't
+    # constrain (json_mode "none" has no structural enforcement).
+    def plausible_merchant_value?(str)
+      return false if PLACEHOLDER_VALUES.include?(str.downcase)
+      return false if str.length > MAX_MERCHANT_VALUE_LENGTH
+      return false if str.include?("\n")
+      return false if reasoning_like?(str)
+
+      true
+    end
+
+    # More than one sentence-terminator (followed by whitespace or end of
+    # string) indicates multi-sentence prose rather than a business name or
+    # URL. A single trailing period ("St. Something's") or a bare domain
+    # ("amazon.com") won't trip this.
+    def reasoning_like?(str)
+      str.scan(/[.!?](?:\s|\z)/).size > 1
     end
 
     def extract_merchants_native(response)
