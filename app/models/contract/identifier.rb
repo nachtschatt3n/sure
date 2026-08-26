@@ -207,7 +207,16 @@ class Contract
       #     vendor + cadence — the user owns that surface;
       #   - among detected rows, uniqueness includes the amount, so two concurrent
       #     subscriptions from one vendor (e.g. two Apple plans) can both exist,
-      #     while a re-scan of the same block is a no-op.
+      #     while a re-scan of the same block is a no-op on everything except
+      #     `next_due_date`.
+      #
+      # An existing detected contract's `next_due_date` gets frozen at whatever
+      # value it had when first created unless a scan refreshes it — nothing
+      # else does, since `Contract#next_due` recomputes for display but never
+      # writes back. So every re-scan still refreshes just that column on a
+      # matching existing row, even when nothing else about the block changed,
+      # to keep the stored value honest for any code path that reads it raw
+      # (the edit form, exports, future callers).
       def create_detected_contract(attrs)
         scope = family.contracts.where(
           frequency: attrs[:frequency],
@@ -220,7 +229,12 @@ class Contract
           scope.where(merchant_id: nil, name: attrs[:name])
         end
         return false if scope.where.not(source: "detected").exists?
-        return false if scope.where(source: "detected", expected_amount: attrs[:expected_amount]).exists?
+
+        existing = scope.find_by(source: "detected", expected_amount: attrs[:expected_amount])
+        if existing
+          existing.update!(next_due_date: attrs[:next_due_date]) if existing.next_due_date != attrs[:next_due_date]
+          return false
+        end
 
         family.contracts.create!(attrs.merge(source: "detected"))
         true
