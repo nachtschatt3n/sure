@@ -18,9 +18,9 @@ class Contracts::CardComponent < ApplicationComponent
   end
 
   def next_due_label
-    return nil if contract.next_due_date.blank?
+    return nil if contract.next_due.blank?
 
-    I18n.l(contract.next_due_date, format: :long)
+    I18n.l(contract.next_due, format: :long)
   end
 
   def overdue?

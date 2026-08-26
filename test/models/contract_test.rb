@@ -50,8 +50,38 @@ class ContractTest < ActiveSupport::TestCase
     assert_not @contract.overdue?
   end
 
-  test "next_due returns the next_due_date" do
+  test "next_due falls back to the stored next_due_date when there's no matching actual transaction" do
     assert_equal @contract.next_due_date, @contract.next_due
+  end
+
+  test "next_due recomputes from the latest matching actual instead of a frozen stored value" do
+    # The stored column is far in the past (as it would be if a scan never
+    # refreshed it), but a real charge landed 5 days ago at the same amount —
+    # the contract is not actually overdue, it's just displaying stale data.
+    contract = @family.contracts.create!(
+      name: "Hosting", frequency: :monthly, expected_amount: 20, currency: "USD",
+      next_due_date: 3.months.ago.to_date, status: :active, source: :manual
+    )
+    last_charge = 5.days.ago.to_date
+    create_transaction(account: accounts(:depository), name: "Hosting", amount: 20, currency: "USD", date: last_charge)
+
+    assert_equal last_charge >> 1, contract.next_due
+    assert_not contract.overdue?
+    # The raw column itself is untouched by reading next_due — only a
+    # detection scan (Contract::Identifier) writes it back.
+    assert_equal 3.months.ago.to_date, contract.next_due_date
+  end
+
+  test "next_due prefers the frozen stored value when no actual has landed within the amount band" do
+    contract = @family.contracts.create!(
+      name: "Hosting", frequency: :monthly, expected_amount: 20, currency: "USD",
+      next_due_date: 3.months.ago.to_date, status: :active, source: :manual
+    )
+    # Charge is far outside the +/-15% band around expected_amount, so it
+    # isn't treated as a matching actual.
+    create_transaction(account: accounts(:depository), name: "Hosting", amount: 5, currency: "USD", date: 5.days.ago.to_date)
+
+    assert_equal contract.next_due_date, contract.next_due
   end
 
   test "price change predicates reflect previous_amount" do

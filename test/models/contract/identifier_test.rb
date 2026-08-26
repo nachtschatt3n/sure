@@ -160,6 +160,26 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     assert_equal accounts(:loan).id, contract.linked_account_id
   end
 
+  test "refreshes next_due_date on a rescan even when the amount hasn't changed" do
+    post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
+
+    Contract::Identifier.new(@family).identify
+    contract = @family.contracts.find_by(name: "Spotify")
+    original_next_due = contract.next_due_date
+
+    travel_to(45.days.from_now) do
+      create_transaction(account: @account, name: "Spotify", amount: 9.99, currency: "USD", date: Date.current - 3)
+
+      assert_no_difference "@family.contracts.count" do
+        Contract::Identifier.new(@family).identify
+      end
+    end
+
+    contract.reload
+    assert_not_equal original_next_due, contract.next_due_date
+    assert contract.next_due_date > original_next_due
+  end
+
   test "is idempotent and never clobbers an existing contract" do
     post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
 
