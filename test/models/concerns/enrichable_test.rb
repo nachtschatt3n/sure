@@ -76,4 +76,62 @@ class EnrichableTest < ActiveSupport::TestCase
 
     refute_includes Account.enrichable(:name), @enrichable
   end
+
+  test "recording an enrichment attempt logs a nil-valued marker without changing the attribute" do
+    original_name = @enrichable.name
+
+    assert_difference "DataEnrichment.count", 1 do
+      @enrichable.record_enrichment_attempt(:name, source: "ai", metadata: { "reason" => "no_match" })
+    end
+
+    marker = DataEnrichment.find_by(enrichable: @enrichable, attribute_name: "name", source: "ai")
+
+    assert_nil marker.value
+    assert_equal "no_match", marker.metadata["reason"]
+    assert marker.metadata["attempted_at"].present?
+
+    # The attempt must not touch the record or its lock state
+    assert_equal original_name, @enrichable.reload.name
+    refute @enrichable.locked?(:name)
+  end
+
+  test "repeated attempts reuse the single marker row" do
+    @enrichable.record_enrichment_attempt(:name, source: "ai")
+
+    assert_no_difference "DataEnrichment.count" do
+      @enrichable.record_enrichment_attempt(:name, source: "ai")
+    end
+  end
+
+  test "without_recent_enrichment_attempt excludes recently attempted records" do
+    assert_includes Account.without_recent_enrichment_attempt(:name, source: "ai"), @enrichable
+
+    @enrichable.record_enrichment_attempt(:name, source: "ai")
+
+    refute_includes Account.without_recent_enrichment_attempt(:name, source: "ai"), @enrichable
+  end
+
+  test "without_recent_enrichment_attempt readmits records once the attempt ages out" do
+    @enrichable.record_enrichment_attempt(:name, source: "ai")
+
+    travel_to (Enrichable::DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS + 1).days.from_now do
+      assert_includes Account.without_recent_enrichment_attempt(:name, source: "ai"), @enrichable
+    end
+  end
+
+  test "without_recent_enrichment_attempt is scoped by source and attribute" do
+    @enrichable.record_enrichment_attempt(:name, source: "ai")
+
+    # A different source has not attempted this attribute
+    assert_includes Account.without_recent_enrichment_attempt(:name, source: "plaid"), @enrichable
+
+    # ...and this source has not attempted a different attribute
+    assert_includes Account.without_recent_enrichment_attempt(:balance, source: "ai"), @enrichable
+  end
+
+  test "a zero ttl disables attempt suppression entirely" do
+    @enrichable.record_enrichment_attempt(:name, source: "ai")
+
+    assert_includes Account.without_recent_enrichment_attempt(:name, source: "ai", ttl: 0), @enrichable
+  end
 end
