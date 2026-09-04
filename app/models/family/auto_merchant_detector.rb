@@ -28,9 +28,20 @@ class Family::AutoMerchantDetector
     end
 
     modified_count = 0
+    unchanged = {}
+
     scope.each do |transaction|
       auto_detection = result.data.find { |c| c.transaction_id == transaction.id }
-      next unless auto_detection&.business_name.present? && auto_detection&.business_url.present?
+
+      # A business_url is optional. It only feeds logo lookup and merchant
+      # deduplication, and Merchant does not require it, so a detection that
+      # names the business is still worth persisting. Requiring it here used to
+      # discard otherwise-good detections from models that reliably return names
+      # but rarely URLs.
+      unless auto_detection&.business_name.present?
+        unchanged[transaction] = "no_business_name"
+        next
+      end
 
       existing_merchant = transaction.merchant
 
@@ -43,6 +54,8 @@ class Family::AutoMerchantDetector
           was_modified = transaction.enrich_attribute(:merchant_id, merchant_id, source: "ai")
           transaction.lock_attr!(:merchant_id)
           modified_count += 1 if was_modified
+        else
+          unchanged[transaction] = "merchant_unresolved"
         end
 
       elsif existing_merchant.is_a?(ProviderMerchant) && existing_merchant.source != "ai"
@@ -50,9 +63,21 @@ class Family::AutoMerchantDetector
         if enhance_provider_merchant(existing_merchant, auto_detection)
           transaction.lock_attr!(:merchant_id)
           modified_count += 1
+        else
+          unchanged[transaction] = "nothing_to_enhance"
         end
+      else
+        # Case 3: AI merchant or FamilyMerchant - skip (already good or user-set)
+        unchanged[transaction] = "merchant_already_set"
       end
-      # Case 3: AI merchant or FamilyMerchant - skip (already good or user-set)
+    end
+
+    # Every transaction the batch examined without changing gets an attempt
+    # marker. Successful paths lock merchant_id and leave the enrichable scope on
+    # their own; without this, the unchanged ones stay enrichable forever and are
+    # resubmitted to the LLM on every rule run, at cost and with no new outcome.
+    unchanged.each do |transaction, reason|
+      transaction.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => reason })
     end
 
     modified_count
@@ -97,6 +122,7 @@ class Family::AutoMerchantDetector
     def scope
       family.transactions.where(id: transaction_ids)
                          .enrichable(:merchant_id)
+                         .without_recent_enrichment_attempt(:merchant_id, source: "ai")
                          .includes(:merchant, :entry)
     end
 

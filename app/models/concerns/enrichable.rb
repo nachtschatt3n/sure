@@ -14,6 +14,22 @@ module Enrichable
 
   InvalidAttributeError = Class.new(StandardError)
 
+  # How long a recorded enrichment attempt suppresses a repeat attempt by the
+  # same source. Only attempts that changed nothing are recorded (a successful
+  # enrichment locks the attribute instead), so this bounds how often an
+  # expensive source is re-asked a question it has already declined to answer.
+  #
+  # Set AI_ENRICHMENT_ATTEMPT_TTL_DAYS=0 to disable the suppression entirely and
+  # restore the previous "retry on every pass" behavior without a code change.
+  DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS = 30
+
+  def self.enrichment_attempt_ttl
+    days = Integer(ENV.fetch("AI_ENRICHMENT_ATTEMPT_TTL_DAYS", DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS).to_s, 10)
+    days.negative? ? DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days : days.days
+  rescue ArgumentError
+    DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days
+  end
+
   included do
     has_many :data_enrichments, as: :enrichable, dependent: :destroy
 
@@ -28,6 +44,25 @@ module Enrichable
     # Override in models to define family-scoped query
     def family_scope(family)
       none
+    end
+
+    # Excludes records this source already examined without changing anything,
+    # within the attempt TTL. Chains after `enrichable`, which has already
+    # dropped every record the source enriched successfully (those are locked),
+    # so what remains carrying a fresh attempt marker is exactly the set the
+    # source looked at and declined.
+    #
+    # A TTL of zero disables the filter, restoring unbounded retries.
+    def without_recent_enrichment_attempt(attrs, source:, ttl: Enrichable.enrichment_attempt_ttl)
+      return all if ttl.to_i.zero?
+
+      attempted = DataEnrichment
+        .where(enrichable_type: polymorphic_name, source: source)
+        .where(attribute_name: Array(attrs).map(&:to_s))
+        .where(updated_at: ttl.ago..)
+        .select(:enrichable_id)
+
+      where.not(id: attempted)
     end
 
     # Clears AI-sourced enrichments for every record of this type in the family.
@@ -53,6 +88,31 @@ module Enrichable
   # Convenience method for a single attribute
   def enrich_attribute(attr, value, source:, metadata: {}, ignore_locks: false)
     enrich_attributes({ attr => value }, source:, metadata:, ignore_locks:)
+  end
+
+  # Records that `source` examined `attr` and produced no change, so the record
+  # can be skipped on the next pass instead of being re-submitted forever.
+  #
+  # `enrich_attributes` deliberately cannot express this: it drops attributes
+  # whose value did not change, so a source that legitimately returns "nothing
+  # here" leaves no trace and is asked the same question on every pass.
+  #
+  # The marker is written with a nil value, both because the attempt produced no
+  # value and so `clear_ai_cache` never mistakes it for evidence that this source
+  # set the attribute's current value. It is stored as an ordinary
+  # DataEnrichment, so clearing a source's cache clears its attempt markers too
+  # and makes every suppressed record immediately retryable.
+  def record_enrichment_attempt(attr, source:, metadata: {})
+    return false if new_record?
+
+    log_enrichment(
+      attribute_name: attr.to_s,
+      attribute_value: nil,
+      source: source,
+      metadata: metadata.merge("attempted_at" => Time.current.iso8601)
+    )
+
+    true
   end
 
   # Enriches and logs all attributes that:
