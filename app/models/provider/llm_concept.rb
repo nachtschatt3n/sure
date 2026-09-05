@@ -7,7 +7,24 @@ module Provider::LlmConcept
     raise NotImplementedError, "Subclasses must implement #auto_categorize"
   end
 
-  AutoDetectedMerchant = Data.define(:transaction_id, :business_name, :business_url)
+  # `name_status` explains why `business_name` is nil, which a bare nil cannot.
+  # A model that answered "null" and a model that omitted the transaction
+  # entirely produce the same nil, and so does a name we received but refused to
+  # persist as implausible — three different problems with three different
+  # fixes. Providers set it; callers record it. Optional so existing
+  # constructions keep working.
+  #
+  # :accepted             — a usable name came back
+  # :declined             — the model returned JSON null / an empty value
+  # :declined_placeholder — the model returned the *string* "null"/"n/a"/…,
+  #                         which is what our own prompt asks it to do
+  # :rejected_implausible — a value came back and was refused (too long,
+  #                         multi-line, or shaped like leaked reasoning)
+  AutoDetectedMerchant = Data.define(:transaction_id, :business_name, :business_url, :name_status) do
+    def initialize(transaction_id:, business_name:, business_url:, name_status: nil)
+      super
+    end
+  end
 
   def auto_detect_merchants(transactions)
     raise NotImplementedError, "Subclasses must implement #auto_detect_merchants"

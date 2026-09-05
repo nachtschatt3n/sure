@@ -295,12 +295,32 @@ class Provider::Openai::AutoMerchantDetector
 
     def build_response(merchants)
       merchants.map do |merchant|
+        raw_name = merchant.dig("business_name")
+        name = normalize_merchant_value(raw_name)
+
         AutoDetectedMerchant.new(
           transaction_id: merchant.dig("transaction_id"),
-          business_name: normalize_merchant_value(merchant.dig("business_name")),
+          business_name: name,
           business_url: normalize_merchant_value(merchant.dig("business_url")),
+          name_status: name.present? ? :accepted : name_status_for(raw_name)
         )
       end
+    end
+
+    # Classifies *why* a name did not survive normalization, so a model that
+    # declined can be told apart from one whose answer we threw away. Mirrors
+    # the order of checks in `plausible_merchant_value?`.
+    def name_status_for(raw)
+      return :declined if raw.nil?
+
+      str = raw.to_s.strip
+      return :declined if str.blank?
+      # Our own prompt instructs the model to return the string "null", so this
+      # is a well-behaved refusal, not a malfunction — but it is worth counting
+      # separately from a JSON null to see which convention a model follows.
+      return :declined_placeholder if PLACEHOLDER_VALUES.include?(str.downcase)
+
+      :rejected_implausible
     end
 
     def normalize_merchant_value(value)

@@ -63,6 +63,33 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_equal "amazon.com", txn1.business_url
   end
 
+  test "reports why a name is missing so a silent model can be told from a refused one" do
+    leaked_reasoning = "First I consider the descriptor. Then I compare it against known " \
+      "merchants. On balance this looks like a utility payment of some kind."
+
+    fake_response = build_response(content: {
+      "merchants" => [
+        { "transaction_id" => "txn_1", "business_name" => "Amazon", "business_url" => "amazon.com" },
+        { "transaction_id" => "txn_2", "business_name" => nil, "business_url" => nil },
+        { "transaction_id" => "txn_3", "business_name" => "null", "business_url" => "null" },
+        { "transaction_id" => "txn_4", "business_name" => leaked_reasoning, "business_url" => nil }
+      ]
+    }.to_json)
+
+    result = build_detector(stub_client(fake_response), transactions: @transactions).auto_detect_merchants
+    status = result.to_h { |r| [ r.transaction_id, r.name_status ] }
+
+    assert_equal :accepted, status["txn_1"]
+    # A JSON null and the string "null" are both refusals, but they say
+    # different things about how the model reads the prompt.
+    assert_equal :declined, status["txn_2"]
+    assert_equal :declined_placeholder, status["txn_3"]
+    # The model did answer here; we are the ones who threw it away.
+    assert_equal :rejected_implausible, status["txn_4"]
+
+    assert_nil result.find { |r| r.transaction_id == "txn_4" }.business_name
+  end
+
   private
     def build_detector(client, transactions:)
       Provider::Openai::AutoMerchantDetector.new(
