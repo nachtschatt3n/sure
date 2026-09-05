@@ -85,6 +85,18 @@ class Provider::Anthropic::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_match(/did not invoke report_merchants/i, err.message)
   end
 
+  test "the prompt does not teach the model to discard small local businesses" do
+    instructions = Provider::Anthropic::AutoMerchantDetector.new(
+      nil, model: "claude-haiku-4-5", transactions: [], user_merchants: []
+    ).send(:instructions)
+
+    # "Local diner" as a null example is the regression this guards. It reads as
+    # "a business you have not heard of" rather than "no business is named", and
+    # a model applies it to every small shop and restaurant it does not know.
+    refute_match(/local diner/i, instructions)
+    assert_match(/still a business/i, instructions)
+  end
+
   private
     def stub_client(response, expect_request: nil)
       messages = mock
@@ -109,6 +121,7 @@ class Provider::Anthropic::AutoMerchantDetectorTest < ActiveSupport::TestCase
         usage: OpenStruct.new(input_tokens: usage[:input_tokens], output_tokens: usage[:output_tokens])
       )
     end
+
 
     def tool_use_block(id:, name:, input:)
       OpenStruct.new(type: :tool_use, id: id, name: name, input: input)

@@ -730,6 +730,29 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
     end
   end
 
+  test "merchant prompts do not teach the model to discard small local businesses" do
+    detector = Provider::Openai::AutoMerchantDetector.new(
+      nil, model: "gpt-4.1", transactions: [], user_merchants: []
+    )
+
+    surfaces = {
+      simple_instructions: detector.simple_instructions,
+      detailed_instructions: detector.detailed_instructions,
+      generic_user_message: detector.send(:developer_message_for_generic)
+    }
+
+    # "Local diner" as a null example is the regression this guards. It reads as
+    # "a business you have not heard of" rather than "no business is named", so
+    # the model applies it to every small shop and restaurant it does not know:
+    # measured against a local model, the shipped prompt named 6 of 15 real
+    # businesses, and 13 of 15 once these cues were removed.
+    surfaces.each do |name, text|
+      refute_match(/local diner/i, text, "#{name} still teaches nulling an unknown local business")
+    end
+
+    assert_match(/still a business/i, surfaces[:detailed_instructions])
+  end
+
   test "custom provider estimates the fixed prompt from the names it actually sends" do
     merchants = Array.new(50) { |i| { id: SecureRandom.uuid, name: "Merchant #{i}" } }
 
