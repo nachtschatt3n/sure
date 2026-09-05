@@ -23,11 +23,58 @@ module Enrichable
   # restore the previous "retry on every pass" behavior without a code change.
   DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS = 30
 
+  # Not every "nothing changed" means the same thing, and they should not be
+  # suppressed for the same length of time.
+  #
+  # "The transaction already has a merchant" is a durable fact about the data:
+  # asking again next month is pointless, and the long TTL is right. "The model
+  # gave us no usable name" is a fact about the model and the prompt, both of
+  # which change — and under one shared TTL a single run with a bad prompt
+  # locks its own material out of every retry for a month. That is exactly what
+  # happened once: a prompt that taught the model to reject small local
+  # businesses ran overnight and suppressed 137 transactions until the
+  # following month, long after the prompt was fixed.
+  #
+  # So model-failure reasons get their own, much shorter TTL.
+  DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS = 7
+
+  # Reasons that describe a model/prompt outcome rather than a durable state.
+  # "no_business_name" is the pre-split label and is kept here so markers
+  # written before the reasons were separated are treated as retryable too.
+  RETRYABLE_ATTEMPT_REASONS = %w[
+    no_business_name
+    model_omitted
+    model_declined
+    model_declined_placeholder
+    name_rejected_implausible
+    merchant_unresolved
+  ].freeze
+
   def self.enrichment_attempt_ttl
     days = Integer(ENV.fetch("AI_ENRICHMENT_ATTEMPT_TTL_DAYS", DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS).to_s, 10)
     days.negative? ? DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days : days.days
   rescue ArgumentError
     DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days
+  end
+
+  # NOTE — the two TTL knobs do NOT mean the same thing at zero, and the
+  # difference is easy to misremember later:
+  #
+  #   AI_ENRICHMENT_ATTEMPT_TTL_DAYS=0           turns the whole filter OFF.
+  #   AI_ENRICHMENT_RETRYABLE_ATTEMPT_TTL_DAYS=0 stops RETRYABLE_ATTEMPT_REASONS
+  #                                              from suppressing anything,
+  #                                              while durable reasons keep
+  #                                              their full TTL.
+  #
+  # The second is the one to reach for after fixing a prompt: it makes every
+  # model-failure marker immediately eligible again without deleting a single
+  # row, so the markers survive as the record of what the previous run did.
+  # Clearing the AI cache would also unblock them — by destroying that record.
+  def self.retryable_enrichment_attempt_ttl
+    days = Integer(ENV.fetch("AI_ENRICHMENT_RETRYABLE_ATTEMPT_TTL_DAYS", DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS).to_s, 10)
+    days.negative? ? DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS.days : days.days
+  rescue ArgumentError
+    DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS.days
   end
 
   included do
@@ -52,14 +99,35 @@ module Enrichable
     # so what remains carrying a fresh attempt marker is exactly the set the
     # source looked at and declined.
     #
-    # A TTL of zero disables the filter, restoring unbounded retries.
-    def without_recent_enrichment_attempt(attrs, source:, ttl: Enrichable.enrichment_attempt_ttl)
+    # Markers are aged on two clocks: RETRYABLE_ATTEMPT_REASONS (a model or
+    # prompt outcome) expire on the short `retryable_ttl`, everything else — and
+    # any marker with no recorded reason — on the long `ttl`.
+    #
+    # A `ttl` of zero disables the filter entirely, restoring unbounded retries.
+    # A `retryable_ttl` of zero only stops retryable reasons from suppressing;
+    # see the note on Enrichable.retryable_enrichment_attempt_ttl. It needs no
+    # special case here: a cutoff of `0.days.ago` is now, and every marker was
+    # written before now, so none of them match.
+    def without_recent_enrichment_attempt(
+      attrs,
+      source:,
+      ttl: Enrichable.enrichment_attempt_ttl,
+      retryable_ttl: Enrichable.retryable_enrichment_attempt_ttl
+    )
       return all if ttl.to_i.zero?
+
+      reason = "COALESCE(data_enrichments.metadata->>'reason', '')"
 
       attempted = DataEnrichment
         .where(enrichable_type: polymorphic_name, source: source)
         .where(attribute_name: Array(attrs).map(&:to_s))
-        .where(updated_at: ttl.ago..)
+        .where(
+          "(#{reason} = ANY (ARRAY[:retryable]::text[]) AND data_enrichments.updated_at >= :retryable_cutoff) " \
+          "OR (NOT (#{reason} = ANY (ARRAY[:retryable]::text[])) AND data_enrichments.updated_at >= :cutoff)",
+          retryable: RETRYABLE_ATTEMPT_REASONS,
+          retryable_cutoff: retryable_ttl.ago,
+          cutoff: ttl.ago
+        )
         .select(:enrichable_id)
 
       where.not(id: attempted)

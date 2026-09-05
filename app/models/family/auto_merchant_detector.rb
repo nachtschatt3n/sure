@@ -39,7 +39,7 @@ class Family::AutoMerchantDetector
       # discard otherwise-good detections from models that reliably return names
       # but rarely URLs.
       unless auto_detection&.business_name.present?
-        unchanged[transaction] = "no_business_name"
+        unchanged[transaction] = missing_name_reason(auto_detection)
         next
       end
 
@@ -85,6 +85,38 @@ class Family::AutoMerchantDetector
 
   private
     attr_reader :family, :transaction_ids
+
+    # A missing name has several distinct causes, and lumping them together is
+    # what made a previous production run unreadable: 142 transactions all
+    # recorded "no_business_name", which was read as "the model returns
+    # nothing" when in fact the model had answered for nearly all of them.
+    #
+    # Splitting the reason makes the follow-up question answerable with one
+    # GROUP BY over data_enrichments.metadata->>'reason' instead of a manual
+    # audit:
+    #
+    #   model_omitted             the batch response had no row for this
+    #                             transaction at all — the only case where the
+    #                             model really was silent
+    #   model_declined            the model answered with a null
+    #   model_declined_placeholder the model answered with the string "null",
+    #                             as our own prompt instructs it to
+    #   name_rejected_implausible we received a name and refused it (too long,
+    #                             multi-line, or leaked reasoning text)
+    def missing_name_reason(auto_detection)
+      return "model_omitted" if auto_detection.nil?
+
+      case auto_detection.name_status
+      when :declined             then "model_declined"
+      when :declined_placeholder then "model_declined_placeholder"
+      when :rejected_implausible then "name_rejected_implausible"
+      else
+        # A provider that predates name_status, or one that reported :accepted
+        # while handing back a blank name. Neither should happen; keep the old
+        # label so the row is still counted rather than lost.
+        "no_business_name"
+      end
+    end
 
     # Honors Setting.llm_provider (issue #2113) — Provider::Anthropic implements
     # auto_detect_merchants (PR #1984), so batch merchant detection routes to the

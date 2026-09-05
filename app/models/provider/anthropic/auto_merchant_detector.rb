@@ -144,12 +144,29 @@ class Provider::Anthropic::AutoMerchantDetector
 
     def build_response(merchants)
       merchants.map do |m|
+        raw_name = m["business_name"] || m[:business_name]
+        name = normalize_merchant_name(raw_name)
+
         AutoDetectedMerchant.new(
           transaction_id: m["transaction_id"] || m[:transaction_id],
-          business_name: normalize_merchant_name(m["business_name"] || m[:business_name]),
-          business_url: normalize_value(m["business_url"] || m[:business_url])
+          business_name: name,
+          business_url: normalize_value(m["business_url"] || m[:business_url]),
+          name_status: name.present? ? :accepted : name_status_for(raw_name)
         )
       end
+    end
+
+    # Same contract as the OpenAI detector: say why the name is missing rather
+    # than leaving callers to guess. This path has no plausibility filter, so
+    # the only outcomes are a JSON null and the literal string "null".
+    def name_status_for(raw)
+      return :declined if raw.nil?
+
+      str = raw.to_s.strip
+      return :declined if str.empty?
+      return :declined_placeholder if str.casecmp("null").zero?
+
+      :declined
     end
 
     def normalize_value(value)
