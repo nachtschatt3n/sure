@@ -448,8 +448,26 @@ class Provider::Openai < Provider
         Array(items),
         max_items: max_items_per_call,
         max_tokens: max_input_tokens,
-        fixed_tokens: fixed ? Assistant::TokenEstimator.estimate(fixed) : 0
+        fixed_tokens: fixed ? Assistant::TokenEstimator.estimate(fixed_prompt_payload(fixed)) : 0
       )
+    end
+
+    # The fixed reference list is rendered differently per prompt flavor, and
+    # the estimate has to match the flavor that will actually be sent.
+    #
+    # The native prompts embed the full objects (`user_merchants.to_json`,
+    # including a 36-char UUID per entry). The generic prompts used for
+    # custom/local providers embed only the names, joined by ", ". Estimating
+    # the native payload for a generic call overstates the fixed cost by ~4-5x
+    # (a 431-merchant family: ~9.8k estimated tokens against ~2.2k actually
+    # sent), which needlessly shrinks every batch and, once the list is long
+    # enough, makes BatchSlicer raise ContextOverflowError and fail the entire
+    # call — for a prompt that would have fit with room to spare.
+    def fixed_prompt_payload(fixed)
+      return fixed unless custom_provider?
+
+      names = Array(fixed).filter_map { |item| item.is_a?(Hash) ? (item[:name] || item["name"]) : item }
+      names.presence || fixed
     end
 
     def native_chat_response(
