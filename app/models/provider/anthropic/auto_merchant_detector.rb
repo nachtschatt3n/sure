@@ -105,7 +105,8 @@ class Provider::Anthropic::AutoMerchantDetector
         - Do NOT include the www. subdomain in business_url ("amazon.com", not "www.amazon.com")
         - User-provided merchants should only be used when the match is unambiguous
         - Favor null over false positives; only return values when 80%+ confident
-        - NEVER return a name/URL for generic descriptions ("Paycheck", "Local diner", "ATM", "POS DEBIT")
+        - NEVER return a name/URL when the description names no business at all ("Paycheck", "ATM", "POS DEBIT")
+        - A small or local business you have no prior knowledge of is still a business; name it from the description
 
         Decision order:
           1. Identify from your knowledge of global businesses

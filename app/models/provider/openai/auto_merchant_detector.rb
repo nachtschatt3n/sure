@@ -87,7 +87,7 @@ class Provider::Openai::AutoMerchantDetector
       Rules:
       1. Match transaction_id exactly from input
       2. Return business_name and business_url for known businesses
-      3. Return "null" for both if uncertain or generic (e.g. "Paycheck", "Local diner")
+      3. Return "null" for both if the descriptor names no business at all (e.g. "Paycheck")
       4. Don't include "www." in URLs (use "amazon.com" not "www.amazon.com")
       5. Favor "null" over guessing - only return values if 80%+ confident
 
@@ -108,7 +108,8 @@ class Provider::Openai::AutoMerchantDetector
       - Do not include the subdomain in the business_url (i.e. "amazon.com" not "www.amazon.com")
       - User merchants are considered "manual" user-generated merchants and should only be used in 100% clear cases
       - Be slightly pessimistic.  We favor returning "null" over returning a false positive.
-      - NEVER return a name or URL for generic transaction names (e.g. "Paycheck", "Laundromat", "Grocery store", "Local diner")
+      - NEVER return a name or URL when the description names no business at all (e.g. "Paycheck", "Bank transfer", "ATM withdrawal")
+      - A small or local business you have no prior knowledge of is still a business; name it from the description
 
       Determining a value:
 
@@ -126,10 +127,10 @@ class Provider::Openai::AutoMerchantDetector
       - business_url: "amazon.com"
       ```
 
-      Example 2 (generic business):
+      Example 2 (names no business):
 
       ```
-      Transaction name: "local diner"
+      Transaction name: "ACH withdrawal"
 
       Result:
       - business_name: null
@@ -511,9 +512,8 @@ class Provider::Openai::AutoMerchantDetector
         - "STARBUCKS STORE #9876" → business_name: "Starbucks", business_url: "starbucks.com"
         - "NETFLIX.COM" → business_name: "Netflix", business_url: "netflix.com"
         - "UBER *TRIP" → business_name: "Uber", business_url: "uber.com"
-        - "ACH WITHDRAWAL" → business_name: "null", business_url: "null" (generic)
-        - "LOCAL DINER" → business_name: "null", business_url: "null" (generic/unknown)
-        - "POS DEBIT 12345" → business_name: "null", business_url: "null" (generic)
+        - "ACH WITHDRAWAL" → business_name: "null", business_url: "null" (names no business)
+        - "POS DEBIT 12345" → business_name: "null", business_url: "null" (reference number only)
 
         IMPORTANT:
         - Return "null" (as a string) for BOTH name and URL if you cannot confidently identify the business
