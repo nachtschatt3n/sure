@@ -209,6 +209,17 @@ class Provider::Openai::AutoMerchantDetector
       # Models that can't reason in strict mode often:
       # 1. Return null for everything, OR
       # 2. Simply omit transactions they can't detect (returning fewer results than input)
+      #
+      # Caveat worth knowing before trusting this signal: a null is not
+      # necessarily a failure. The prompt asks the model to return null when a
+      # description names no business, and on real bank data a large share of
+      # transactions are exactly that — direct-debit boilerplate, transfers,
+      # person-to-person payments. A batch of those legitimately exceeds the
+      # threshold and buys a second, identical inference round in "none" mode,
+      # which cannot do better because the prompt is unchanged. Observed on one
+      # self-hosted install: 31% of calls retried, none of them rescued a real
+      # failure. Pin json_mode explicitly if that cost matters more than the
+      # rescue.
       null_count = result.count { |r| r.business_name.nil? || r.business_name == "null" }
       missing_count = transactions.size - result.size
       failed_count = null_count + missing_count
