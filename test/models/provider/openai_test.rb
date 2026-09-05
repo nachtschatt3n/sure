@@ -545,4 +545,51 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
       config.build_input(prompt: "hi", messages: [ { role: "user", content: "old" } ])
     end
   end
+
+  test "custom provider estimates the fixed prompt from the names it actually sends" do
+    merchants = Array.new(50) { |i| { id: SecureRandom.uuid, name: "Merchant #{i}" } }
+
+    native_payload = @subject.send(:fixed_prompt_payload, merchants)
+    custom_payload = custom_provider.send(:fixed_prompt_payload, merchants)
+
+    # The native prompt embeds the full objects (a 36-char UUID per entry); the
+    # generic prompt embeds only the names. Estimating the wrong one is what
+    # inflated the fixed cost.
+    assert_equal merchants, native_payload
+    assert_equal merchants.map { |m| m[:name] }, custom_payload
+
+    assert_operator Assistant::TokenEstimator.estimate(custom_payload), :<,
+                    Assistant::TokenEstimator.estimate(native_payload) / 2
+  end
+
+  test "a long merchant list does not starve the batch budget on a custom provider" do
+    # Sized so the pre-fix accounting (full objects, UUID each) would exceed the
+    # input budget and make BatchSlicer raise ContextOverflowError, while the
+    # names the generic prompt actually sends fit comfortably.
+    merchants = Array.new(700) { |i| { id: SecureRandom.uuid, name: "Merchant Nummer #{i} GmbH" } }
+    transactions = Array.new(5) { |i| { id: "txn_#{i}", description: "Some purchase #{i}" } }
+
+    with_env_overrides("LLM_CONTEXT_WINDOW" => "16384", "LLM_MAX_ITEMS_PER_CALL" => "5") do
+      assert_raises(Provider::Openai::BatchSlicer::ContextOverflowError) do
+        Provider::Openai::BatchSlicer.call(
+          transactions,
+          max_items: 5,
+          max_tokens: custom_provider.send(:max_input_tokens),
+          fixed_tokens: Assistant::TokenEstimator.estimate(merchants)
+        )
+      end
+
+      batches = custom_provider.send(:slice_for_context, transactions, fixed: merchants)
+      assert_equal transactions, batches.flatten
+    end
+  end
+
+  private
+    def custom_provider
+      @custom_provider ||= Provider::Openai.new(
+        "test-token",
+        uri_base: "http://localhost:11434/v1",
+        model: "local-model"
+      )
+    end
 end
