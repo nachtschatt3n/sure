@@ -28,9 +28,20 @@ class Family::AutoMerchantDetector
     end
 
     modified_count = 0
+    unchanged = {}
+
     scope.each do |transaction|
       auto_detection = result.data.find { |c| c.transaction_id == transaction.id }
-      next unless auto_detection&.business_name.present? && auto_detection&.business_url.present?
+
+      # A business_url is optional. It only feeds logo lookup and merchant
+      # deduplication, and Merchant does not require it, so a detection that
+      # names the business is still worth persisting. Requiring it here used to
+      # discard otherwise-good detections from models that reliably return names
+      # but rarely URLs.
+      unless auto_detection&.business_name.present?
+        unchanged[transaction] = missing_name_reason(auto_detection)
+        next
+      end
 
       existing_merchant = transaction.merchant
 
@@ -43,6 +54,8 @@ class Family::AutoMerchantDetector
           was_modified = transaction.enrich_attribute(:merchant_id, merchant_id, source: "ai")
           transaction.lock_attr!(:merchant_id)
           modified_count += 1 if was_modified
+        else
+          unchanged[transaction] = "merchant_unresolved"
         end
 
       elsif existing_merchant.is_a?(ProviderMerchant) && existing_merchant.source != "ai"
@@ -50,9 +63,21 @@ class Family::AutoMerchantDetector
         if enhance_provider_merchant(existing_merchant, auto_detection)
           transaction.lock_attr!(:merchant_id)
           modified_count += 1
+        else
+          unchanged[transaction] = "nothing_to_enhance"
         end
+      else
+        # Case 3: AI merchant or FamilyMerchant - skip (already good or user-set)
+        unchanged[transaction] = "merchant_already_set"
       end
-      # Case 3: AI merchant or FamilyMerchant - skip (already good or user-set)
+    end
+
+    # Every transaction the batch examined without changing gets an attempt
+    # marker. Successful paths lock merchant_id and leave the enrichable scope on
+    # their own; without this, the unchanged ones stay enrichable forever and are
+    # resubmitted to the LLM on every rule run, at cost and with no new outcome.
+    unchanged.each do |transaction, reason|
+      transaction.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => reason })
     end
 
     modified_count
@@ -60,6 +85,38 @@ class Family::AutoMerchantDetector
 
   private
     attr_reader :family, :transaction_ids
+
+    # A missing name has several distinct causes, and lumping them together is
+    # what made a previous production run unreadable: 142 transactions all
+    # recorded "no_business_name", which was read as "the model returns
+    # nothing" when in fact the model had answered for nearly all of them.
+    #
+    # Splitting the reason makes the follow-up question answerable with one
+    # GROUP BY over data_enrichments.metadata->>'reason' instead of a manual
+    # audit:
+    #
+    #   model_omitted             the batch response had no row for this
+    #                             transaction at all — the only case where the
+    #                             model really was silent
+    #   model_declined            the model answered with a null
+    #   model_declined_placeholder the model answered with the string "null",
+    #                             as our own prompt instructs it to
+    #   name_rejected_implausible we received a name and refused it (too long,
+    #                             multi-line, or leaked reasoning text)
+    def missing_name_reason(auto_detection)
+      return "model_omitted" if auto_detection.nil?
+
+      case auto_detection.name_status
+      when :declined             then "model_declined"
+      when :declined_placeholder then "model_declined_placeholder"
+      when :rejected_implausible then "name_rejected_implausible"
+      else
+        # A provider that predates name_status, or one that reported :accepted
+        # while handing back a blank name. Neither should happen; keep the old
+        # label so the row is still counted rather than lost.
+        "no_business_name"
+      end
+    end
 
     # Honors Setting.llm_provider (issue #2113) — Provider::Anthropic implements
     # auto_detect_merchants (PR #1984), so batch merchant detection routes to the
@@ -97,6 +154,7 @@ class Family::AutoMerchantDetector
     def scope
       family.transactions.where(id: transaction_ids)
                          .enrichable(:merchant_id)
+                         .without_recent_enrichment_attempt(:merchant_id, source: "ai")
                          .includes(:merchant, :entry)
     end
 

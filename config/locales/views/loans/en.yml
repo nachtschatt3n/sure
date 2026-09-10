@@ -10,9 +10,17 @@ en:
       rate_type: Rate type
       term_months: Term (months)
       term_months_placeholder: '360'
+      contract_term: Contract term
+      contract_term_placeholder: e.g. 25 years
+      contract_term_tooltip: The term as stated on the loan contract. May differ from the amortization term above if there was a drawdown/interest-only period before regular payments began.
+      rate_lock_expires_on: Rate Lock Expires
+      rate_lock_expires_on_tooltip: The date this fixed interest rate lock (Zinsbindung) expires. After this date, the loan typically needs to be renewed or refinanced at a new rate.
       none: None
       subtype_prompt: Select loan type
       subtype_none: None
+      rate_type_adjustable: Adjustable
+      rate_type_fixed: Fixed
+      rate_type_variable: Variable
     new:
       title: Enter loan details
     overview:
@@ -34,4 +42,7 @@ en:
         term: Term
         type: Type
         unknown: Unknown
+        contract_term: Contract Term
+        rate_lock_expires_on: Rate Lock Expires
+        rate_lock_expiring_soon: Expiring soon
         edit_loan_details: "Edit loan details"

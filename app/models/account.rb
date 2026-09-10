@@ -280,6 +280,23 @@ class Account < ApplicationRecord
       )
     end
 
+    def create_from_wise_account(wise_account)
+      family = wise_account.wise_item.family
+
+      create_and_sync(
+        {
+          family: family,
+          name: wise_account.name || "Wise #{wise_account.currency}",
+          balance: wise_account.current_balance || 0,
+          cash_balance: wise_account.current_balance || 0,
+          currency: wise_account.currency,
+          accountable_type: "Depository",
+          accountable_attributes: { subtype: wise_account.account_subtype }
+        },
+        skip_initial_sync: true
+      )
+    end
+
     def create_from_coinbase_account(coinbase_account)
       # All Coinbase accounts are crypto exchange accounts
       family = coinbase_account.coinbase_item.family
@@ -357,6 +374,29 @@ class Account < ApplicationRecord
       create_from_crypto_exchange_account(kraken_account, family: kraken_account.kraken_item.family)
     end
 
+    # Self-custody assets are wallets, not exchanges: no trade entry by hand,
+    # and no cash side. The balance is written by the provider sync, which is
+    # the only thing that knows what the chain says.
+    def create_from_onchain_wallet_account(onchain_wallet_account)
+      family = onchain_wallet_account.onchain_wallet_item.family
+
+      create_and_sync(
+        {
+          family: family,
+          name: onchain_wallet_account.display_name,
+          balance: 0,
+          cash_balance: 0,
+          currency: onchain_wallet_account.currency.presence || family.currency,
+          accountable_type: "Crypto",
+          accountable_attributes: {
+            subtype: "wallet",
+            tax_treatment: "taxable"
+          }
+        },
+        skip_initial_sync: true
+      )
+    end
+
     private
 
       def create_from_crypto_exchange_account(provider_account, family:)
@@ -429,26 +469,6 @@ class Account < ApplicationRecord
     # brokerage is usually a market move, not a deposit, and would false-match a
     # pledge. They resolve on transfer (cash-inflow) entries only.
     manual? && !investment? ? "manual_save" : "transfer"
-  end
-
-  # Total fixed earmark this account currently has reserved across every
-  # non-archived goal (unallocated/whole-balance links reserve no fixed
-  # slice). Mirrors Budget#allocated_spending.
-  def goal_earmarked_total
-    GoalAccount.joins(:goal)
-               .where(account_id: id)
-               .where.not(allocated_amount: nil)
-               .where.not(goals: { state: "archived" })
-               .sum(:allocated_amount)
-               .to_d
-  end
-
-  # Headroom left to earmark toward goals before fixed allocations exceed the
-  # balance. Negative means the account is over-earmarked. Intended to back a
-  # non-blocking over-allocation warning (UI is a follow-up). Mirrors
-  # Budget#available_to_allocate.
-  def free_to_earmark
-    balance.to_d - goal_earmarked_total
   end
 
   # Total fixed earmark this account currently has reserved across every
@@ -627,8 +647,12 @@ class Account < ApplicationRecord
   end
 
   def auto_share_with_family!
-    records = family.users.where.not(id: owner_id).pluck(:id).map do |user_id|
-      { account_id: id, user_id: user_id, permission: "read_write",
+    # Guests get read_only, everyone else read_write. This mirrors
+    # Family#auto_share_existing_accounts_with so a guest's permission on an
+    # account is the same whether they joined before or after it was created.
+    records = family.users.where.not(id: owner_id).pluck(:id, :role).map do |user_id, role|
+      { account_id: id, user_id: user_id,
+        permission: role == "guest" ? "read_only" : "read_write",
         include_in_finances: true, created_at: Time.current, updated_at: Time.current }
     end
 

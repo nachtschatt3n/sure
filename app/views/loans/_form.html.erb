@@ -19,7 +19,7 @@
                                  min: 0,
                                  step: 0.005 %>
         <%= loan_form.select :rate_type,
-                           [["Fixed", "fixed"], ["Variable", "variable"], ["Adjustable", "adjustable"]],
+                           [[t("loans.form.rate_type_fixed"), "fixed"], [t("loans.form.rate_type_variable"), "variable"], [t("loans.form.rate_type_adjustable"), "adjustable"]],
                            { label: t("loans.form.rate_type") } %>
       </div>
 
@@ -29,9 +29,22 @@
                                  placeholder: t("loans.form.term_months_placeholder") %>
       </div>
 
+      <div class="flex items-center gap-2">
+        <%= loan_form.text_field :contract_term,
+                                 label: t("loans.form.contract_term"),
+                                 label_tooltip: t("loans.form.contract_term_tooltip"),
+                                 placeholder: t("loans.form.contract_term_placeholder") %>
+      </div>
+
+      <div class="flex items-center gap-2">
+        <%= loan_form.date_field :rate_lock_expires_on,
+                                 label: t("loans.form.rate_lock_expires_on"),
+                                 label_tooltip: t("loans.form.rate_lock_expires_on_tooltip") %>
+      </div>
+
       <div>
         <%= loan_form.select :subtype,
-                  Loan::SUBTYPES.map { |k, v| [v[:long], k] },
+                  Loan.subtype_options_for_select,
                   { label: true, prompt: t("loans.form.subtype_prompt"), include_blank: t("loans.form.none") } %>
       </div>
     <% end %>

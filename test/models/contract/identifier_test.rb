@@ -160,6 +160,49 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     assert_equal accounts(:loan).id, contract.linked_account_id
   end
 
+  test "refreshes next_due_date on a rescan even when the amount hasn't changed" do
+    post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
+
+    Contract::Identifier.new(@family).identify
+    contract = @family.contracts.find_by(name: "Spotify")
+    original_next_due = contract.next_due_date
+
+    travel_to(45.days.from_now) do
+      create_transaction(account: @account, name: "Spotify", amount: 9.99, currency: "USD", date: Date.current - 3)
+
+      assert_no_difference "@family.contracts.count" do
+        Contract::Identifier.new(@family).identify
+      end
+    end
+
+    contract.reload
+    assert_not_equal original_next_due, contract.next_due_date
+    assert contract.next_due_date > original_next_due
+  end
+
+  test "continues an existing detected contract in place when a rescan finds a price change" do
+    post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
+
+    assert_difference "@family.contracts.count", 1 do
+      Contract::Identifier.new(@family).identify
+    end
+    contract = @family.contracts.find_by(name: "Spotify")
+
+    travel_to(35.days.from_now) do
+      create_transaction(account: @account, name: "Spotify", amount: 12.99, currency: "USD", date: Date.current - 3)
+
+      # A price change on rescan must update the existing row, not leave it
+      # behind as a stale duplicate while creating a new one at the new amount.
+      assert_no_difference "@family.contracts.count" do
+        Contract::Identifier.new(@family).identify
+      end
+    end
+
+    contract.reload
+    assert_equal BigDecimal("12.99"), contract.expected_amount
+    assert_equal BigDecimal("9.99"), contract.previous_amount
+  end
+
   test "is idempotent and never clobbers an existing contract" do
     post_series(name: "Spotify", amount: 9.99, count: 6, gap: 30)
 

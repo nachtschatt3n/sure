@@ -377,6 +377,47 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
     end
   end
 
+  test "history budget subtracts the real instructions estimate when given" do
+    Setting.stubs(:llm_max_response_tokens).returns(nil)
+
+    with_env_overrides(
+      "LLM_CONTEXT_WINDOW" => "8192",
+      "LLM_MAX_RESPONSE_TOKENS" => nil,
+      "LLM_SYSTEM_PROMPT_RESERVE" => nil,
+      "LLM_MAX_HISTORY_TOKENS" => nil
+    ) do
+      subject = Provider::Openai.new("test-token")
+      instructions = "a" * 4000
+      estimate = Assistant::TokenEstimator.estimate(instructions)
+
+      assert_equal 8192 - 512 - estimate, subject.max_history_tokens(instructions: instructions)
+      # Without instructions the flat reserve still applies
+      assert_equal 8192 - 512 - 256, subject.max_history_tokens
+    end
+  end
+
+  test "response cap is only sent when explicitly configured" do
+    with_env_overrides("LLM_MAX_RESPONSE_TOKENS" => nil) do
+      Setting.stubs(:llm_max_response_tokens).returns(nil)
+      subject = Provider::Openai.new("test-token")
+
+      assert_nil subject.explicit_max_response_tokens
+    end
+
+    with_env_overrides("LLM_MAX_RESPONSE_TOKENS" => nil) do
+      Setting.stubs(:llm_max_response_tokens).returns(768)
+      subject = Provider::Openai.new("test-token")
+
+      assert_equal 768, subject.explicit_max_response_tokens
+    end
+
+    with_env_overrides("LLM_MAX_RESPONSE_TOKENS" => "900") do
+      subject = Provider::Openai.new("test-token")
+
+      assert_equal 900, subject.explicit_max_response_tokens
+    end
+  end
+
   test "budget readers fall back to Setting when ENV unset" do
     with_env_overrides(
       "LLM_CONTEXT_WINDOW" => nil,
@@ -504,4 +545,74 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
       config.build_input(prompt: "hi", messages: [ { role: "user", content: "old" } ])
     end
   end
+
+  test "merchant prompts do not teach the model to discard small local businesses" do
+    detector = Provider::Openai::AutoMerchantDetector.new(
+      nil, model: "gpt-4.1", transactions: [], user_merchants: []
+    )
+
+    surfaces = {
+      simple_instructions: detector.simple_instructions,
+      detailed_instructions: detector.detailed_instructions,
+      generic_user_message: detector.send(:developer_message_for_generic)
+    }
+
+    # "Local diner" as a null example is the regression this guards. It reads as
+    # "a business you have not heard of" rather than "no business is named", so
+    # the model applies it to every small shop and restaurant it does not know:
+    # measured against a local model, the shipped prompt named 6 of 15 real
+    # businesses, and 13 of 15 once these cues were removed.
+    surfaces.each do |name, text|
+      refute_match(/local diner/i, text, "#{name} still teaches nulling an unknown local business")
+    end
+
+    assert_match(/still a business/i, surfaces[:detailed_instructions])
+  end
+
+  test "custom provider estimates the fixed prompt from the names it actually sends" do
+    merchants = Array.new(50) { |i| { id: SecureRandom.uuid, name: "Merchant #{i}" } }
+
+    native_payload = @subject.send(:fixed_prompt_payload, merchants)
+    custom_payload = custom_provider.send(:fixed_prompt_payload, merchants)
+
+    # The native prompt embeds the full objects (a 36-char UUID per entry); the
+    # generic prompt embeds only the names. Estimating the wrong one is what
+    # inflated the fixed cost.
+    assert_equal merchants, native_payload
+    assert_equal merchants.map { |m| m[:name] }, custom_payload
+
+    assert_operator Assistant::TokenEstimator.estimate(custom_payload), :<,
+                    Assistant::TokenEstimator.estimate(native_payload) / 2
+  end
+
+  test "a long merchant list does not starve the batch budget on a custom provider" do
+    # Sized so the pre-fix accounting (full objects, UUID each) would exceed the
+    # input budget and make BatchSlicer raise ContextOverflowError, while the
+    # names the generic prompt actually sends fit comfortably.
+    merchants = Array.new(700) { |i| { id: SecureRandom.uuid, name: "Merchant Nummer #{i} GmbH" } }
+    transactions = Array.new(5) { |i| { id: "txn_#{i}", description: "Some purchase #{i}" } }
+
+    with_env_overrides("LLM_CONTEXT_WINDOW" => "16384", "LLM_MAX_ITEMS_PER_CALL" => "5") do
+      assert_raises(Provider::Openai::BatchSlicer::ContextOverflowError) do
+        Provider::Openai::BatchSlicer.call(
+          transactions,
+          max_items: 5,
+          max_tokens: custom_provider.send(:max_input_tokens),
+          fixed_tokens: Assistant::TokenEstimator.estimate(merchants)
+        )
+      end
+
+      batches = custom_provider.send(:slice_for_context, transactions, fixed: merchants)
+      assert_equal transactions, batches.flatten
+    end
+  end
+
+  private
+    def custom_provider
+      @custom_provider ||= Provider::Openai.new(
+        "test-token",
+        uri_base: "http://localhost:11434/v1",
+        model: "local-model"
+      )
+    end
 end

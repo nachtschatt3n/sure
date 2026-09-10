@@ -25,7 +25,9 @@ class Family::AutoMerchantDetectorTest < ActiveSupport::TestCase
 
     @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
 
-    assert_difference "DataEnrichment.count", 2 do
+    # Two enrichments for the detected merchants, plus one attempt marker for the
+    # transaction the model declined to name.
+    assert_difference "DataEnrichment.count", 3 do
       Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn1.id, txn2.id, txn3.id ]).auto_detect
     end
 
@@ -35,11 +37,256 @@ class Family::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_equal "https://cdn.brandfetch.io/chipotle.com/icon/fallback/lettermark/w/40/h/40?c=123", txn2.reload.merchant.logo_url
     assert_nil txn3.reload.merchant
 
-    # After auto-detection, only successfully detected transactions are locked
-    # txn3 remains enrichable since it didn't get a merchant (allows retry)
+    # After auto-detection, only successfully detected transactions are locked.
+    # txn3 stays unlocked so a user or a later model can still claim it, but its
+    # attempt marker keeps it out of the detector's own scope in the meantime.
     assert_equal 1, @account.transactions.reload.enrichable(:merchant_id).count
+  end
+
+  test "persists a detection that has a business name but no business url" do
+    txn = create_transaction(account: @account, name: "HETZNER ONLINE GMBH").transaction
+
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: txn.id, business_name: "Hetzner", business_url: nil)
+    ])
+
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    modified = Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+
+    assert_equal 1, modified
+
+    merchant = txn.reload.merchant
+    assert_equal "Hetzner", merchant.name
+    assert_nil merchant.website_url
+    assert_nil merchant.logo_url
+
+    # A successful detection locks the attribute, which is what takes it out of
+    # the enrichable scope for good.
+    assert txn.locked?(:merchant_id)
+  end
+
+  test "distinguishes why a business name is missing" do
+    omitted     = create_transaction(account: @account, name: "no row comes back").transaction
+    declined    = create_transaction(account: @account, name: "generic").transaction
+    placeholder = create_transaction(account: @account, name: "Mol*nunc. GmbH").transaction
+    rejected    = create_transaction(account: @account, name: "Some Shop").transaction
+
+    # `omitted` is deliberately absent from the response: that is the only case
+    # in which the model really said nothing.
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: declined.id, business_name: nil, business_url: nil,
+                               name_status: :declined),
+      AutoDetectedMerchant.new(transaction_id: placeholder.id, business_name: nil, business_url: nil,
+                               name_status: :declined_placeholder),
+      AutoDetectedMerchant.new(transaction_id: rejected.id, business_name: nil, business_url: nil,
+                               name_status: :rejected_implausible)
+    ])
+
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    ids = [ omitted.id, declined.id, placeholder.id, rejected.id ]
+    assert_difference "DataEnrichment.count", 4 do
+      Family::AutoMerchantDetector.new(@family, transaction_ids: ids).auto_detect
+    end
+
+    expected = {
+      omitted => "model_omitted",
+      declined => "model_declined",
+      placeholder => "model_declined_placeholder",
+      rejected => "name_rejected_implausible"
+    }
+
+    expected.each do |txn, reason|
+      marker = DataEnrichment.find_by(enrichable: txn, attribute_name: "merchant_id", source: "ai")
+      assert_equal reason, marker.metadata["reason"], "wrong reason recorded for #{txn.entry.name}"
+    end
+  end
+
+  test "records an attempt when the model returns no business name" do
+    txn = create_transaction(account: @account, name: "generic").transaction
+
+    # No name_status: a provider that predates the split still records a marker
+    # under the original label rather than losing the row.
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: txn.id, business_name: nil, business_url: nil)
+    ])
+
+    # `.once` is the assertion that matters here: the second pass must not reach
+    # the provider at all.
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    assert_difference "DataEnrichment.count", 1 do
+      Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+    end
+
+    marker = DataEnrichment.find_by(enrichable: txn, attribute_name: "merchant_id", source: "ai")
+    assert_equal "no_business_name", marker.metadata["reason"]
+    assert_nil txn.reload.merchant
+    refute txn.locked?(:merchant_id)
+
+    # The transaction is still enrichable, but no longer a candidate for the
+    # detector, so a second rule run costs nothing.
+    assert_includes Transaction.enrichable(:merchant_id), txn
+
+    assert_equal 0, Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+  end
+
+  test "records an attempt when an existing provider merchant has nothing to enhance" do
+    merchant = ProviderMerchant.create!(source: "plaid", name: "Corner Shop", website_url: nil)
+    txn = create_transaction(account: @account, name: "CORNER SHOP", merchant: merchant).transaction
+
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: txn.id, business_name: "Corner Shop", business_url: nil)
+    ])
+
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    modified = nil
+    assert_difference "DataEnrichment.count", 1 do
+      modified = Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+    end
+
+    assert_equal 0, modified
+
+    marker = DataEnrichment.find_by(enrichable: txn, attribute_name: "merchant_id", source: "ai")
+    assert_equal "nothing_to_enhance", marker.metadata["reason"]
+
+    # Nothing was enhanced, so nothing is locked -- but the batch still left a
+    # trace, which is what stops the resubmission loop.
+    refute txn.reload.locked?(:merchant_id)
+    assert_nil merchant.reload.website_url
+    refute_includes Transaction.without_recent_enrichment_attempt(:merchant_id, source: "ai"), txn
+  end
+
+  test "records an attempt when the merchant is already set" do
+    merchant = ProviderMerchant.create!(source: "ai", name: "Already Known", website_url: "known.com")
+    txn = create_transaction(account: @account, name: "ALREADY KNOWN", merchant: merchant).transaction
+
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: txn.id, business_name: "Already Known", business_url: "known.com")
+    ])
+
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    modified = nil
+    assert_difference "DataEnrichment.count", 1 do
+      modified = Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+    end
+
+    assert_equal 0, modified
+
+    marker = DataEnrichment.find_by(enrichable: txn, attribute_name: "merchant_id", source: "ai")
+    assert_equal "merchant_already_set", marker.metadata["reason"]
+    assert_equal merchant, txn.reload.merchant
+    refute_includes Transaction.without_recent_enrichment_attempt(:merchant_id, source: "ai"), txn
+  end
+
+  test "clearing the ai cache removes attempt markers and makes transactions retryable" do
+    txn = create_transaction(account: @account, name: "generic").transaction
+
+    provider_response = provider_success_response([
+      AutoDetectedMerchant.new(transaction_id: txn.id, business_name: nil, business_url: nil)
+    ])
+
+    @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
+
+    Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn.id ]).auto_detect
+
+    refute_includes Transaction.without_recent_enrichment_attempt(:merchant_id, source: "ai"), txn
+
+    assert_difference "DataEnrichment.count", -1 do
+      Transaction.clear_ai_cache(@family)
+    end
+
+    assert_includes Transaction.without_recent_enrichment_attempt(:merchant_id, source: "ai"), txn
+  end
+
+  test "model-failure markers expire on the short clock, durable ones on the long clock" do
+    declined = create_transaction(account: @account, name: "generic").transaction
+    already  = create_transaction(account: @account, name: "ALREADY KNOWN").transaction
+
+    declined.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "model_declined" })
+    already.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "merchant_already_set" })
+
+    assert_suppressed declined
+    assert_suppressed already
+
+    travel 8.days do
+      # The prompt may well have changed in a week; ask the model again.
+      assert_retryable declined
+      # Whether the transaction already has a merchant has not changed.
+      assert_suppressed already
+    end
+
+    travel 31.days do
+      assert_retryable already
+    end
+  end
+
+  test "legacy no_business_name markers age on the short clock too" do
+    txn = create_transaction(account: @account, name: "generic").transaction
+    txn.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "no_business_name" })
+
+    travel 8.days do
+      assert_retryable txn
+    end
+  end
+
+  test "a marker with no recorded reason keeps the long ttl" do
+    txn = create_transaction(account: @account, name: "generic").transaction
+    txn.record_enrichment_attempt(:merchant_id, source: "ai")
+
+    travel 8.days do
+      assert_suppressed txn
+    end
+
+    travel 31.days do
+      assert_retryable txn
+    end
+  end
+
+  test "a zero retryable ttl unblocks model failures without deleting any markers" do
+    declined = create_transaction(account: @account, name: "generic").transaction
+    already  = create_transaction(account: @account, name: "ALREADY KNOWN").transaction
+
+    declined.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "model_declined" })
+    already.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "merchant_already_set" })
+
+    with_env_overrides("AI_ENRICHMENT_RETRYABLE_ATTEMPT_TTL_DAYS" => "0") do
+      assert_retryable declined
+      # Zero on this knob is not the global kill-switch: durable reasons keep
+      # suppressing.
+      assert_suppressed already
+    end
+
+    # The point of this knob over clearing the AI cache: the evidence survives.
+    assert_equal 2, DataEnrichment.where(attribute_name: "merchant_id", source: "ai").count
+  end
+
+  test "a zero global ttl still disables the whole filter" do
+    txn = create_transaction(account: @account, name: "generic").transaction
+    txn.record_enrichment_attempt(:merchant_id, source: "ai", metadata: { "reason" => "merchant_already_set" })
+
+    assert_suppressed txn
+
+    with_env_overrides("AI_ENRICHMENT_ATTEMPT_TTL_DAYS" => "0") do
+      assert_retryable txn
+    end
   end
 
   private
     AutoDetectedMerchant = Provider::LlmConcept::AutoDetectedMerchant
+
+    def detector_scope
+      Transaction.without_recent_enrichment_attempt(:merchant_id, source: "ai")
+    end
+
+    def assert_suppressed(txn)
+      refute_includes detector_scope, txn, "expected #{txn.id} to be suppressed"
+    end
+
+    def assert_retryable(txn)
+      assert_includes detector_scope, txn, "expected #{txn.id} to be retryable"
+    end
 end

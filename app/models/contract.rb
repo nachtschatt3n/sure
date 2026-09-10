@@ -83,8 +83,19 @@ class Contract < ApplicationRecord
     Money.new(monthly_normalized_amount, currency)
   end
 
+  # The next expected charge date, recomputed from the most recent real
+  # transaction that plausibly settles this contract (see `recent_actuals`)
+  # rather than trusting the stored `next_due_date` column, which only moves
+  # when a detection scan happens to touch this contract (see
+  # `Contract::Identifier#create_detected_contract`) and otherwise sits frozen
+  # at whatever value it had when first detected/created — even as real
+  # charges keep arriving on schedule. Falls back to the stored column when
+  # there's no matching actual to project from (e.g. a brand-new manual
+  # contract with no history yet).
   def next_due
-    next_due_date
+    return @next_due if defined?(@next_due)
+
+    @next_due = compute_next_due
   end
 
   # True when the expected amount differs from the last-known amount (a price
@@ -98,15 +109,17 @@ class Contract < ApplicationRecord
   end
 
   # A contract is overdue when its next expected charge date has passed and it
-  # is still active (paused / cancelled contracts don't nag).
+  # is still active (paused / cancelled contracts don't nag). Uses the
+  # recomputed `next_due`, not the raw stored column, so a contract doesn't
+  # read as overdue just because a past scan never happened to refresh it.
   def overdue?
-    active? && next_due_date.present? && next_due_date < Date.current
+    active? && next_due.present? && next_due < Date.current
   end
 
   def days_overdue
     return 0 unless overdue?
 
-    (Date.current - next_due_date).to_i
+    (Date.current - next_due).to_i
   end
 
   # Real transactions that plausibly settle this contract: same currency (and
@@ -137,6 +150,25 @@ class Contract < ApplicationRecord
   end
 
   private
+    # The most recent matching actual, projected forward one cadence — the
+    # honest "next charge" date. Falls back to the stored column when there's
+    # no actual to project from.
+    def compute_next_due
+      latest_actual_date = recent_actuals(months: 12).limit(1).pick(:date)
+      return next_due_date if latest_actual_date.nil?
+
+      advance_from(latest_actual_date) || next_due_date
+    end
+
+    def advance_from(date)
+      return date + 7 if frequency == "weekly"
+
+      months = months_per_occurrence
+      return nil if months.nil? || months.zero?
+
+      date >> months.round.to_i
+    end
+
     def custom_interval_required_for_custom
       return unless custom?
       return if custom_interval_months.to_i.positive?
