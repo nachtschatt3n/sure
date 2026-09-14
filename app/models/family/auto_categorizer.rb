@@ -34,6 +34,8 @@ class Family::AutoCategorizer
     end
 
     modified_count = 0
+    unchanged = {}
+
     scope.each do |transaction|
       auto_categorization = result.data.find { |c| c.transaction_id == transaction.id }
 
@@ -48,7 +50,19 @@ class Family::AutoCategorizer
         transaction.lock_attr!(:category_id)
         # enrich_attribute returns true if the transaction was actually modified
         modified_count += 1 if was_modified
+      else
+        unchanged[transaction] = missing_category_reason(auto_categorization)
       end
+    end
+
+    # Mirrors Family::AutoMerchantDetector. A transaction the model declined to
+    # categorize is not locked, so it stays in the enrichable scope and — with
+    # the post-sync hook re-applying the auto-enrich rule after every sync — is
+    # resubmitted to the LLM on every pass, at cost and with the same outcome.
+    # Record the attempt so `without_recent_enrichment_attempt` can hold it
+    # for the (short, model-failure) TTL instead.
+    unchanged.each do |transaction, reason|
+      transaction.record_enrichment_attempt(:category_id, source: "ai", metadata: { "reason" => reason })
     end
 
     modified_count
@@ -56,6 +70,21 @@ class Family::AutoCategorizer
 
   private
     attr_reader :family, :transaction_ids
+
+    # Why a transaction came back without an applicable category, recorded on
+    # the attempt marker so a later audit is one GROUP BY away:
+    #
+    #   model_omitted       the batch response had no row for this transaction
+    #   model_declined      the model answered "null" (normalized to nil)
+    #   category_unmatched  the model named a category that is not one of the
+    #                       family's — the provider's exact/fuzzy match already
+    #                       failed, so there is nothing to apply
+    def missing_category_reason(auto_categorization)
+      return "model_omitted" if auto_categorization.nil?
+      return "model_declined" if auto_categorization.category_name.blank?
+
+      "category_unmatched"
+    end
 
     # Honors Setting.llm_provider (issue #2113) — Provider::Anthropic implements
     # auto_categorize (PR #1984), so batch categorization routes to the configured
@@ -90,6 +119,7 @@ class Family::AutoCategorizer
     def scope
       family.transactions.where(id: transaction_ids, category_id: nil)
                          .enrichable(:category_id)
+                         .without_recent_enrichment_attempt(:category_id, source: "ai")
                          .includes(:category, :merchant, :entry)
     end
 end
