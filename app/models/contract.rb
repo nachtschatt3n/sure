@@ -153,11 +153,18 @@ class Contract < ApplicationRecord
     # The most recent matching actual, projected forward one cadence — the
     # honest "next charge" date. Falls back to the stored column when there's
     # no actual to project from.
+    # Never earlier than the stored column. `recent_actuals` only sees charges
+    # linked to this contract's merchant, so a charge that landed without one
+    # (a raw bank name the merchant detector hasn't resolved yet) is invisible
+    # to it — the recompute then projects from an older charge and reads as
+    # overdue, while the identifier (which matches on the canonical vendor
+    # name) has already advanced the column past it. The column only ever
+    # moves forward on real charges, so the later of the two is the truth.
     def compute_next_due
       latest_actual_date = recent_actuals(months: 12).limit(1).pick(:date)
       return next_due_date if latest_actual_date.nil?
 
-      advance_from(latest_actual_date) || next_due_date
+      [ advance_from(latest_actual_date), next_due_date ].compact.max
     end
 
     def advance_from(date)
