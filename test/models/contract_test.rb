@@ -84,6 +84,21 @@ class ContractTest < ActiveSupport::TestCase
     assert_equal contract.next_due_date, contract.next_due
   end
 
+  test "next_due never falls behind a stored value a scan has already advanced" do
+    # The identifier advanced the column from a charge the recompute can't see
+    # (it landed without the contract's merchant), so the only actual the
+    # recompute finds is the previous one. Projecting from that alone would
+    # read as overdue; the later stored date wins instead.
+    contract = @family.contracts.create!(
+      name: "Hosting", frequency: :quarterly, expected_amount: 20, currency: "USD",
+      next_due_date: 2.months.from_now.to_date, status: :active, source: :manual
+    )
+    create_transaction(account: accounts(:depository), name: "Hosting", amount: 20, currency: "USD", date: 4.months.ago.to_date)
+
+    assert_equal contract.next_due_date, contract.next_due
+    assert_not contract.overdue?
+  end
+
   test "price change predicates reflect previous_amount" do
     assert_not @contract.price_changed?
     assert_not @contract.price_increased?
