@@ -48,6 +48,7 @@ module Enrichable
     model_declined_placeholder
     name_rejected_implausible
     merchant_unresolved
+    category_unmatched
   ].freeze
 
   def self.enrichment_attempt_ttl
