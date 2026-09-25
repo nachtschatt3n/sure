@@ -1,14 +1,21 @@
 # syntax = docker/dockerfile:1
 
 # Make sure RUBY_VERSION matches the Ruby version in .ruby-version and Gemfile
-ARG RUBY_VERSION=3.4.9
+ARG RUBY_VERSION=3.4.11
 FROM registry.docker.com/library/ruby:$RUBY_VERSION-slim AS base
 
 # Rails app lives here
 WORKDIR /rails
 
-# Install base packages
-RUN apt-get update -qq \
+# Install base packages and pull in pending Debian security updates.
+# Superseded ruby:<patch>-slim tags stop being rebuilt upstream, so the base
+# image's OS packages go stale; `apt-get upgrade` closes that gap at build time.
+# OS_PACKAGES_REFRESH is a cache-buster: CI passes the build date so a rebuild
+# re-runs this layer instead of reusing a cached, stale one.
+ARG OS_PACKAGES_REFRESH=""
+RUN echo "OS packages refresh: ${OS_PACKAGES_REFRESH}" \
+    && apt-get update -qq \
+    && apt-get upgrade -y --no-install-recommends \
     && apt-get install --no-install-recommends -y curl libvips postgresql-client libyaml-0-2 procps libjemalloc2 \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
