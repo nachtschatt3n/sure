@@ -115,7 +115,9 @@ jobs:
 
       - name: Get current date (RFC 3339 format)
         id: date
-        run: echo "date=$(date -Iseconds)" >> $GITHUB_OUTPUT
+        run: |
+          echo "date=$(date -Iseconds)" >> $GITHUB_OUTPUT
+          echo "day=$(date -u +%F)" >> $GITHUB_OUTPUT
 
       - name: Extract metadata for Docker
         id: meta
@@ -137,7 +139,9 @@ jobs:
         id: build
         with:
           context: .
-          build-args: BUILD_COMMIT_SHA=${{ github.sha }}
+          build-args: |
+            BUILD_COMMIT_SHA=${{ github.sha }}
+            OS_PACKAGES_REFRESH=${{ steps.date.outputs.day }}
           platforms: 'linux/${{ matrix.platform }}'
           cache-from: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ matrix.platform }}
           cache-to: type=registry,ref=${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:cache-${{ matrix.platform }},mode=max
