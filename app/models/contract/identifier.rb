@@ -261,6 +261,7 @@ class Contract
                 .where(entryable_type: "Transaction")
                 .where("entries.date >= ?", LOOKBACK_MONTHS.months.ago.to_date)
                 .where("entries.amount > 0")
+                .where(excluded: false)
                 .where.not("transactions.kind": Transaction::TRANSFER_KINDS)
                 .pluck("transactions.merchant_id", "merchants.name", "entries.name", "entries.amount", "entries.currency", "entries.account_id", "entries.date")
                 .filter_map do |merchant_id, merchant_name, name, amount, currency, account_id, date|

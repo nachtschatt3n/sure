@@ -116,6 +116,17 @@ class Contract::IdentifierTest < ActiveSupport::TestCase
     end
   end
 
+  test "ignores excluded entries" do
+    # Excluded entries are not real spend (e.g. a funding debit mirrored by the
+    # purchase on another account), so a recurring series of them is no contract.
+    post_series(name: "Funding", amount: 34.95, count: 6, gap: 30)
+    @family.entries.where(name: "Funding").update_all(excluded: true)
+
+    assert_no_difference "@family.contracts.count" do
+      Contract::Identifier.new(@family).identify
+    end
+  end
+
   test "ignores incidental micro-purchases" do
     post_series(name: "Bakery", amount: 2.50, count: 2, gap: 182, last_days_ago: 20)
 
