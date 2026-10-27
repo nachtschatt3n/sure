@@ -33,7 +33,9 @@ on:
       - 'charts/**'
       - 'mobile/**'
   schedule:
-    - cron: '30 1 * * *'
+    # Weekly (Sun) rather than daily: the daily run exhausted the Actions budget.
+    # Deploys pin their own sha tag; the weekly cache-free rebuild is scheduled-rebuild.yml.
+    - cron: '30 1 * * 0'
 
 env:
   REGISTRY: ghcr.io
