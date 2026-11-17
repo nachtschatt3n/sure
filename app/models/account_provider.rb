@@ -7,6 +7,8 @@ class AccountProvider < ApplicationRecord
   validates :account_id, uniqueness: { scope: :provider_type }
   validates :provider_id, uniqueness: { scope: :provider_type }
 
+  validate :financekit_has_exclusive_writer, if: -> { new_record? || will_save_change_to_account_id? || will_save_change_to_provider_id? || will_save_change_to_provider_type? }
+
   # When unlinking a CoinStats account, also destroy the CoinstatsAccount record
   # so it doesn't remain orphaned and count as "needs setup".
   # Other providers may legitimately enter a "needs setup" state.
@@ -19,6 +21,9 @@ class AccountProvider < ApplicationRecord
   # — so linking that same asset again would collide with a row nothing shows.
   # The Sure account and its holdings are untouched and carry on as manual.
   after_destroy :destroy_onchain_provider_account, if: :onchain_provider?
+
+  # Linking an account the user ignored during setup is how they take it back.
+  after_create :stop_ignoring_provider_account, if: -> { provider.respond_to?(:ignored?) }
 
   # Returns the provider adapter for this connection
   def adapter
@@ -33,6 +38,27 @@ class AccountProvider < ApplicationRecord
 
   private
 
+    # Under the provider's row lock, which reloads it: an ignore! that committed
+    # after the provider was loaded is seen, and one still running waits.
+    def stop_ignoring_provider_account
+      provider.with_lock { provider.update!(ignored: false) if provider.ignored? }
+    end
+
+    def financekit_has_exclusive_writer
+      # belongs_to :account already reports a missing account; bail out rather
+      # than dereference it below.
+      return if account.nil?
+      # Every provider link takes the same canonical-account lock. This closes
+      # the race between FinanceKit mapping and another provider's setup flow.
+      Account.where(id: account_id).lock.pick(:id)
+      others = self.class.where(account_id: account_id).where.not(id: id)
+      conflict = provider_type == "FinancekitAccountLineage" ? others.exists? : others.where(provider_type: "FinancekitAccountLineage").exists?
+      errors.add(:account, "already has an exclusive FinanceKit publisher") if conflict
+      if provider_type == "FinancekitAccountLineage" && provider&.family_id != account.family_id
+        errors.add(:account, "must belong to the FinanceKit enrollment family")
+      end
+    end
+
     def coinstats_provider?
       provider_type == "CoinstatsAccount"
     end
@@ -46,9 +72,13 @@ class AccountProvider < ApplicationRecord
     end
 
     def destroy_onchain_provider_account
-      # The row destroys this link itself through dependent: :destroy, so
-      # answering that by destroying the row again would go round in circles.
-      return if destroyed_by_association
+      # Skipped only when the row is the one destroying this link, through its
+      # own dependent: :destroy — answering that by destroying the row again
+      # would go round in circles. The account destroys this link by association
+      # too, and there the row must follow: a guard reading nothing but
+      # `destroyed_by_association` could not tell the two apart, and left the
+      # row behind with no account to track.
+      return if destroyed_by_association&.active_record == OnchainWalletAccount
 
       provider&.destroy
     end
