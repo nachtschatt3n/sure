@@ -1,5 +1,5 @@
 class EnrichContractsJob < ApplicationJob
-  queue_as :medium_priority
+  queue_as :ai_low_priority
 
   def perform(family_id, contract_ids: nil)
     family = Family.find_by(id: family_id)
