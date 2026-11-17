@@ -263,5 +263,4 @@ class EnrichableTest < ActiveSupport::TestCase
 
     assert_includes Account.without_recent_enrichment_attempt(:name, source: "ai", ttl: 0), @enrichable
   end
-
 end

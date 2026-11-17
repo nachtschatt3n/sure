@@ -52,7 +52,8 @@ module Enrichable
   ].freeze
 
   def self.enrichment_attempt_ttl
-    days = Integer(ENV.fetch("AI_ENRICHMENT_ATTEMPT_TTL_DAYS", DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS).to_s, 10)
+    # Fork-only operator knob for marker aging, not model/provider configuration.
+    days = Integer(ENV.fetch("AI_ENRICHMENT_ATTEMPT_TTL_DAYS", DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS).to_s, 10) # rubocop:disable Sure/NoAiEnv
     days.negative? ? DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days : days.days
   rescue ArgumentError
     DEFAULT_ENRICHMENT_ATTEMPT_TTL_DAYS.days
@@ -72,7 +73,8 @@ module Enrichable
   # row, so the markers survive as the record of what the previous run did.
   # Clearing the AI cache would also unblock them — by destroying that record.
   def self.retryable_enrichment_attempt_ttl
-    days = Integer(ENV.fetch("AI_ENRICHMENT_RETRYABLE_ATTEMPT_TTL_DAYS", DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS).to_s, 10)
+    # Fork-only operator knob for marker aging, not model/provider configuration.
+    days = Integer(ENV.fetch("AI_ENRICHMENT_RETRYABLE_ATTEMPT_TTL_DAYS", DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS).to_s, 10) # rubocop:disable Sure/NoAiEnv
     days.negative? ? DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS.days : days.days
   rescue ArgumentError
     DEFAULT_RETRYABLE_ATTEMPT_TTL_DAYS.days
