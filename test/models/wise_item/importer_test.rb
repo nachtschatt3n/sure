@@ -324,6 +324,19 @@ class WiseItem::ImporterTest < ActiveSupport::TestCase
     assert standard.raw_transactions_payload.any? { |a| a["type"] == "INTERBALANCE" }
   end
 
+  test "stops paging activities when Wise repeats a cursor" do
+    full_page = Array.new(100) { |i| build_interbalance("To <strong>Jar</strong>", resource_id: "p#{i}") }
+    provider = FakeWiseProvider.new(activities: full_page)
+    provider.define_singleton_method(:get_activities) do |profile_id, cursor: nil, size: 100|
+      @calls << :get_activities
+      { "activities" => @activities, "cursor" => "same-cursor" }
+    end
+
+    Timeout.timeout(5) { WiseItem::Importer.new(@wise_item, wise_provider: provider).import }
+
+    assert_equal 2, provider.calls.count(:get_activities)
+  end
+
   test "routes BALANCE_CASHBACK only to JAR account" do
     savings = {
       "id" => "10000002",

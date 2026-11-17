@@ -81,9 +81,12 @@ class Provider::Wise
     get("/v1/transfers/#{transfer_id}")
   end
 
+  # Wise pages activities with the previous response's `cursor`, sent back as
+  # `nextCursor`. An unknown `cursor` parameter is ignored and the first page
+  # comes back again, so the importer would never reach the end of the list.
   def get_activities(profile_id, cursor: nil, size: 100)
     query = { size: size }
-    query[:cursor] = cursor if cursor
+    query[:nextCursor] = cursor if cursor
     get("/v1/profiles/#{profile_id}/activities", query: query)
   end
 
