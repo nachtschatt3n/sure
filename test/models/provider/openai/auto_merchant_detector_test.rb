@@ -96,15 +96,29 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_nil result.first.business_url
   end
 
-  test "auto mode retries when strict results lack a usable business_url" do
+  # Fork divergence: Family::AutoMerchantDetector persists a name-only
+  # detection, so a strict result that names the business but omits the URL
+  # is usable and must not buy a second inference round in none mode.
+  test "auto mode keeps strict results that name the business without a url" do
+    @client.expects(:chat).once
+      .returns(chat_response('{"merchants":[{"transaction_id":"1","business_name":"Amazon"}]}'))
+
+    result = detector(json_mode: "auto").auto_detect_merchants
+
+    assert_equal "Amazon", result.first.business_name
+    assert_nil result.first.business_url
+  end
+
+  test "auto mode retries when strict results lack a business name" do
     @client.expects(:chat).twice
       .returns(
-        chat_response('{"merchants":[{"transaction_id":"1","business_name":"Amazon"}]}'),
+        chat_response('{"merchants":[{"transaction_id":"1","business_name":null,"business_url":null}]}'),
         chat_response('{"merchants":[{"transaction_id":"1","business_name":"Amazon","business_url":"amazon.com"}]}')
       )
 
     result = detector(json_mode: "auto").auto_detect_merchants
 
+    assert_equal "Amazon", result.first.business_name
     assert_equal "amazon.com", result.first.business_url
   end
 
@@ -166,7 +180,7 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
 
     client = stub_client(fake_response)
 
-    result = build_detector(client, transactions: [ @transactions[1] ]).auto_detect_merchants
+    result = build_detector(client, transactions: [ plausibility_transactions[1] ]).auto_detect_merchants
 
     txn2 = result.find { |r| r.transaction_id == "txn_2" }
     assert_nil txn2.business_name
@@ -182,7 +196,7 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
 
     client = stub_client(fake_response)
 
-    result = build_detector(client, transactions: [ @transactions[2] ]).auto_detect_merchants
+    result = build_detector(client, transactions: [ plausibility_transactions[2] ]).auto_detect_merchants
 
     txn3 = result.find { |r| r.transaction_id == "txn_3" }
     assert_nil txn3.business_name
@@ -198,7 +212,7 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
 
     client = stub_client(fake_response)
 
-    result = build_detector(client, transactions: [ @transactions[0] ]).auto_detect_merchants
+    result = build_detector(client, transactions: [ plausibility_transactions[0] ]).auto_detect_merchants
 
     txn1 = result.find { |r| r.transaction_id == "txn_1" }
     assert_equal "Amazon", txn1.business_name
@@ -218,7 +232,7 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
       ]
     }.to_json)
 
-    result = build_detector(stub_client(fake_response), transactions: @transactions).auto_detect_merchants
+    result = build_detector(stub_client(fake_response), transactions: plausibility_transactions).auto_detect_merchants
     status = result.to_h { |r| [ r.transaction_id, r.name_status ] }
 
     assert_equal :accepted, status["txn_1"]
@@ -250,6 +264,16 @@ class Provider::Openai::AutoMerchantDetectorTest < ActiveSupport::TestCase
         "choices" => [ { "message" => { "content" => content } } ],
         "usage" => { "total_tokens" => 1 }
       }
+    end
+
+    # Fixtures for the plausibility/name_status tests (fork-only coverage).
+    def plausibility_transactions
+      [
+        { id: "txn_1", name: "Some Amazon purchases", classification: "expense" },
+        { id: "txn_2", name: "AWKWARD-POS-DEBIT-991", classification: "expense" },
+        { id: "txn_3", name: "Local diner", classification: "expense" },
+        { id: "txn_4", name: "Random merchant charge", classification: "expense" }
+      ]
     end
 
     def build_detector(client, transactions:)

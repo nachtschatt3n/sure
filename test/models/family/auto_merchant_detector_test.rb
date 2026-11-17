@@ -25,7 +25,9 @@ class Family::AutoMerchantDetectorTest < ActiveSupport::TestCase
 
     @llm_provider.expects(:auto_detect_merchants).returns(provider_response).once
 
-    assert_difference "DataEnrichment.count", 2 do
+    # Two enrichments for the detected merchants, plus one attempt marker for the
+    # transaction the model declined to name.
+    assert_difference "DataEnrichment.count", 3 do
       Family::AutoMerchantDetector.new(@family, transaction_ids: [ txn1.id, txn2.id, txn3.id ]).auto_detect
     end
 
@@ -35,8 +37,9 @@ class Family::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_equal "https://cdn.brandfetch.io/chipotle.com/icon/fallback/lettermark/w/40/h/40?c=123", txn2.reload.merchant.logo_url
     assert_nil txn3.reload.merchant
 
-    # After auto-detection, only successfully detected transactions are locked
-    # txn3 remains enrichable since it didn't get a merchant (allows retry)
+    # After auto-detection, only successfully detected transactions are locked.
+    # txn3 stays unlocked so a user or a later model can still claim it, but its
+    # attempt marker keeps it out of the detector's own scope in the meantime.
     assert_equal 1, @account.transactions.reload.enrichable(:merchant_id).count
   end
 

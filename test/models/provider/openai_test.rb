@@ -1196,7 +1196,6 @@ class Provider::OpenaiTest < ActiveSupport::TestCase
       assert_raises(Provider::Openai::BatchSlicer::ContextOverflowError) do
         Provider::Openai::BatchSlicer.call(
           transactions,
-          max_items: 5,
           max_tokens: custom_provider.send(:max_input_tokens),
           fixed_tokens: Assistant::TokenEstimator.estimate(merchants)
         )
