@@ -318,6 +318,11 @@ module Enrichable
       # If user changed the value, they took ownership - don't unlock, even
       # once they change it back (the change marked the record superseded)
       attrs_to_unlock = ai_enrichments.select do |enrichment|
+        # An attempt marker (nil value, see #record_enrichment_attempt) is not
+        # evidence the AI set anything; nil.to_s would otherwise match a blank
+        # attribute and drop a lock the user owns.
+        next false if enrichment.value.nil?
+
         attr_name = enrichment.attribute_name
         current_value = respond_to?(attr_name) ? send(attr_name) : self[attr_name]
         current_value.to_s == enrichment.value.to_s && enrichment.metadata&.dig("superseded") != true

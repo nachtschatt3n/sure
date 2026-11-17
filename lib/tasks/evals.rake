@@ -736,6 +736,7 @@ namespace :evals do
       .where.not(
         id: DataEnrichment
           .where(enrichable_type: "Transaction", attribute_name: "category_id")
+          .where.not(value: nil) # attempt markers record a decline, not a categorization
           .select(:enrichable_id)
       )
       .includes(:category, entry: :account)

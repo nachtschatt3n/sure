@@ -636,6 +636,17 @@ class TransactionTest < ActiveSupport::TestCase
     assert transaction.reload.locked?(:category_id)
   end
 
+  test "clearing the AI cache does not treat an attempt marker as the AI's value" do
+    transaction = transactions(:one)
+    transaction.update!(category: nil)
+    transaction.record_enrichment_attempt(:category_id, source: "ai", metadata: { "reason" => "model_declined" })
+    # The user owns the (blank) category from here on.
+    transaction.lock_attr!(:category_id)
+
+    assert_equal 1, transaction.reload.clear_ai_cache, "the marker itself is still removed"
+    assert transaction.reload.locked?(:category_id), "a nil marker must not unlock a blank attribute"
+  end
+
   test "a category merge ends a claim the AI recorded on the category merged into" do
     transaction = transactions(:one)
     transaction.enrich_attribute(:category_id, categories(:income).id, source: "ai")

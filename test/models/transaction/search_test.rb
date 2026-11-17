@@ -1260,6 +1260,26 @@ class Transaction::SearchTest < ActiveSupport::TestCase
     assert_empty current_ids
   end
 
+  # Enrichable#record_enrichment_attempt leaves a nil-valued marker when the
+  # model declined to categorize. That is not an automatic categorization, so
+  # it must not put the transaction under either AI filter.
+  test "ai_status ignores attempt markers for declined categorizations" do
+    declined = create_transaction(account: @checking_account, amount: 100, kind: "standard").entryable
+    declined.record_enrichment_attempt(:category_id, source: "ai", metadata: { "reason" => "model_declined" })
+
+    user_set = create_transaction(account: @checking_account, amount: 50, kind: "standard").entryable
+    user_set.record_enrichment_attempt(:category_id, source: "ai", metadata: { "reason" => "model_declined" })
+    user_set.update!(category: categories(:food_and_drink))
+
+    %w[current history].each do |status|
+      result_ids = Transaction::Search.new(@family, filters: { ai_status: [ status ] })
+                                    .transactions_scope.pluck(:id)
+
+      assert_not_includes result_ids, declined.id, "#{status}: a declined attempt is not an AI categorization"
+      assert_not_includes result_ids, user_set.id, "#{status}: a user category after a declined attempt is not AI history"
+    end
+  end
+
   test "attachment_status with returns only transactions that have a file" do
     with_file = create_transaction(account: @checking_account, amount: 100, kind: "standard").entryable
     attach_file(with_file)

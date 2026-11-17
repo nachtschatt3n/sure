@@ -334,8 +334,11 @@ class Transaction::Search
     # Correlated EXISTS predicate over the transaction's automatic category
     # enrichments. to_jsonb(NULL::text) is NULL, so an uncategorized
     # transaction never satisfies the "matches current category" variant.
+    # Attempt markers (Enrichable#record_enrichment_attempt) carry no value and
+    # record that the source declined, not that it categorized anything, so
+    # they are excluded.
     def auto_enrichment_exists_sql(extra_condition = nil)
-      sql = "EXISTS (SELECT 1 FROM data_enrichments de WHERE de.enrichable_type = 'Transaction' AND de.enrichable_id = transactions.id AND de.attribute_name = 'category_id' AND de.source IN (:sources)"
+      sql = "EXISTS (SELECT 1 FROM data_enrichments de WHERE de.enrichable_type = 'Transaction' AND de.enrichable_id = transactions.id AND de.attribute_name = 'category_id' AND de.source IN (:sources) AND de.value IS NOT NULL AND de.value <> 'null'::jsonb"
       sql += " AND #{extra_condition}" if extra_condition
       sql + ")"
     end
