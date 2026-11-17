@@ -85,6 +85,29 @@ class Provider::Anthropic::AutoMerchantDetectorTest < ActiveSupport::TestCase
     assert_match(/did not invoke report_merchants/i, err.message)
   end
 
+  test "sends tool_choice auto to a model that rejects a forced tool" do
+    fake_response = build_response(content: [
+      tool_use_block(
+        id: "toolu_3",
+        name: "report_merchants",
+        input: { "merchants" => [ { "transaction_id" => "txn_1", "business_name" => "Amazon", "business_url" => "amazon.com" } ] }
+      )
+    ])
+    client = stub_client(fake_response, expect_request: ->(params) {
+      assert_equal({ type: "auto", disable_parallel_tool_use: true }, params[:tool_choice])
+      assert_includes params[:system_], "calling the report_merchants tool"
+    })
+
+    result = Provider::Anthropic::AutoMerchantDetector.new(
+      client,
+      model: "claude-sonnet-5-5",
+      transactions: @transactions,
+      user_merchants: @user_merchants
+    ).auto_detect_merchants
+
+    assert_equal "Amazon", result.find { |r| r.transaction_id == "txn_1" }.business_name
+  end
+
   test "the prompt does not teach the model to discard small local businesses" do
     instructions = Provider::Anthropic::AutoMerchantDetector.new(
       nil, model: "claude-haiku-4-5", transactions: [], user_merchants: []
@@ -121,7 +144,6 @@ class Provider::Anthropic::AutoMerchantDetectorTest < ActiveSupport::TestCase
         usage: OpenStruct.new(input_tokens: usage[:input_tokens], output_tokens: usage[:output_tokens])
       )
     end
-
 
     def tool_use_block(id:, name:, input:)
       OpenStruct.new(type: :tool_use, id: id, name: name, input: input)

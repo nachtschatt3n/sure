@@ -7,7 +7,8 @@ FROM registry.docker.com/library/ruby:$RUBY_VERSION-slim AS base
 # Rails app lives here
 WORKDIR /rails
 
-# Install base packages and pull in pending Debian security updates.
+# Install base packages (poppler-utils provides pdftoppm for the PDF vision
+# processing path) and pull in pending Debian security updates.
 # Superseded ruby:<patch>-slim tags stop being rebuilt upstream, so the base
 # image's OS packages go stale; `apt-get upgrade` closes that gap at build time.
 # OS_PACKAGES_REFRESH is a cache-buster: CI passes the build date so a rebuild
@@ -16,7 +17,7 @@ ARG OS_PACKAGES_REFRESH=""
 RUN echo "OS packages refresh: ${OS_PACKAGES_REFRESH}" \
     && apt-get update -qq \
     && apt-get upgrade -y --no-install-recommends \
-    && apt-get install --no-install-recommends -y curl libvips postgresql-client libyaml-0-2 procps libjemalloc2 \
+    && apt-get install --no-install-recommends -y curl libvips postgresql-client libyaml-0-2 procps libjemalloc2 poppler-utils \
     && rm -rf /var/lib/apt/lists /var/cache/apt/archives
 
 # Set production environment
