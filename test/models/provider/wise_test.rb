@@ -5,6 +5,14 @@ class Provider::WiseTest < ActiveSupport::TestCase
     @provider = Provider::Wise.new("test_token", base_url: "https://api.wise.com")
   end
 
+  test "sends the activity cursor as nextCursor" do
+    @provider.expects(:get)
+      .with("/v1/profiles/111/activities", query: { size: 100, nextCursor: "abc" })
+      .returns({ "activities" => [], "cursor" => nil })
+
+    @provider.get_activities("111", cursor: "abc")
+  end
+
   test "chunks balance statement requests into windows under the 469-day limit" do
     start_date = Date.new(2015, 4, 12)
     end_date = Date.new(2018, 4, 30)

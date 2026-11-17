@@ -139,6 +139,7 @@ class WiseItem::Importer
       cutoff = transfer_cutoff
       activities = []
       cursor = nil
+      seen_cursors = Set.new
 
       loop do
         result = with_rate_limit_retry { wise_provider.get_activities(wise_item.profile_id, cursor: cursor, size: 100) }
@@ -153,6 +154,13 @@ class WiseItem::Importer
 
         cursor = result["cursor"]
         break if cursor.nil?
+
+        # A cursor Wise has already handed out means paging is not advancing;
+        # stop rather than request the same page forever.
+        unless seen_cursors.add?(cursor)
+          Rails.logger.warn "WiseItem::Importer - Activity cursor repeated for item #{wise_item.id}; stopping pagination"
+          break
+        end
       end
 
       activities.uniq { |a| a["id"] }
